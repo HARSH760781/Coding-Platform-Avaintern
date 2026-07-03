@@ -18,15 +18,15 @@ import codingRoutes from "./routes/codingTests.js";
 // ============================================
 // 🔍 DEBUG: Check ALL environment variables
 // ============================================
-console.log("📋 === ENVIRONMENT VARIABLES ===");
-console.log("  PORT:", process.env.PORT || "❌ NOT SET");
-console.log("  MONGODB_URI:", process.env.MONGODB_URI ? "✅ SET" : "❌ NOT SET");
-console.log("  JWT_SECRET:", process.env.JWT_SECRET ? "✅ SET" : "❌ NOT SET");
-console.log("  RAPIDAPI_KEY:", process.env.RAPIDAPI_KEY ? "✅ SET" : "❌ NOT SET");
-console.log("  RAPIDAPI_HOST:", process.env.RAPIDAPI_HOST || "❌ NOT SET");
-console.log("  JUDGE0_API_URL:", process.env.JUDGE0_API_URL || "❌ NOT SET");
-console.log("  GOOGLE_SHEETS_URL:", process.env.GOOGLE_SHEETS_URL ? "✅ SET" : "❌ NOT SET");
-console.log("================================");
+// console.log("📋 === ENVIRONMENT VARIABLES ===");
+// console.log("  PORT:", process.env.PORT || "❌ NOT SET");
+// console.log("  MONGODB_URI:", process.env.MONGODB_URI ? "✅ SET" : "❌ NOT SET");
+// console.log("  JWT_SECRET:", process.env.JWT_SECRET ? "✅ SET" : "❌ NOT SET");
+// console.log("  RAPIDAPI_KEY:", process.env.RAPIDAPI_KEY ? "✅ SET" : "❌ NOT SET");
+// console.log("  RAPIDAPI_HOST:", process.env.RAPIDAPI_HOST || "❌ NOT SET");
+// console.log("  JUDGE0_API_URL:", process.env.JUDGE0_API_URL || "❌ NOT SET");
+// console.log("  GOOGLE_SHEETS_URL:", process.env.GOOGLE_SHEETS_URL ? "✅ SET" : "❌ NOT SET");
+// console.log("================================");
 
 // ============================================
 // 🚀 Initialize Express App
@@ -41,7 +41,7 @@ connectDB();
 
 // TEMPORARY: Bypass auth for all routes
 app.use((req, res, next) => {
-  console.log(`📡 ${req.method} ${req.url}`);
+  // console.log(`📡 ${req.method} ${req.url}`);
   req.user = { id: "test_user_123", role: "admin" };
   req.userId = "test_user_123";
   next();
@@ -79,7 +79,9 @@ app.get("/api/debug/env", (req, res) => {
     rapidapi_key: process.env.RAPIDAPI_KEY ? "✅ SET" : "❌ NOT SET",
     rapidapi_host: process.env.RAPIDAPI_HOST || "❌ NOT SET",
     judge0_api_url: process.env.JUDGE0_API_URL || "❌ NOT SET",
-    key_value: process.env.RAPIDAPI_KEY ? process.env.RAPIDAPI_KEY.substring(0, 10) + "..." : "N/A",
+    key_value: process.env.RAPIDAPI_KEY
+      ? process.env.RAPIDAPI_KEY.substring(0, 10) + "..."
+      : "N/A",
   });
 });
 
