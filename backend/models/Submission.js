@@ -1,72 +1,123 @@
-  // backend/models/Submission.js
-  import mongoose from "mongoose";
+// backend/models/CodingTestAttempt.js
+import mongoose from "mongoose";
 
-  const submissionSchema = new mongoose.Schema({
-    userId: {
-      // type: mongoose.Schema.Types.ObjectId,
-      type: String,
-      ref: "User",
-      required: true,
-    },
-    problemId: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: "Problem",
-      required: true,
-    },
-    language: {
-      type: String,
-      required: true,
-    },
-    code: {
-      type: String,
-      required: true,
-    },
-    status: {
-      type: String,
-      enum: [
-        "Accepted",
-        "Wrong Answer",
-        "Time Limit Exceeded",
-        "Memory Limit Exceeded",
-        "Runtime Error",
-        "Compilation Error",
-        "Pending",
-      ],
-      default: "Pending",
-    },
-    score: {
-      type: Number,
-      default: 0,
-    },
-    totalTestCases: {
-      type: Number,
-      default: 0,
-    },
-    passedTestCases: {
-      type: Number,
-      default: 0,
-    },
-    executionTime: {
-      type: Number,
-    },
-    memoryUsed: {
-      type: Number,
-    },
-    testResults: [
-      {
-        testCaseId: Number,
-        passed: Boolean,
-        input: String,
-        expected: String,
-        output: String,
-        error: String,
-        executionTime: Number,
+const codingTestAttemptSchema = new mongoose.Schema({
+  // ============================================
+  // USER & TEST REFERENCES
+  // ============================================
+  userId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: "User",
+    required: true,
+    index: true,
+  },
+  testId: {
+    type: String,
+    required: true,
+    index: true,
+  },
+
+  // ============================================
+  // TIMING
+  // ============================================
+  startTime: {
+    type: Date,
+    default: Date.now,
+  },
+  endTime: {
+    type: Date,
+  },
+  timeTaken: {
+    type: Number, // in seconds
+    default: 0,
+  },
+
+  // ============================================
+  // STATUS
+  // ============================================
+  status: {
+    type: String,
+    enum: ["in_progress", "completed", "timed_out"],
+    default: "in_progress",
+  },
+  autoSubmitted: {
+    type: Boolean,
+    default: false,
+  },
+
+  // ============================================
+  // ✅ SOLUTIONS (Grouped by User)
+  // ============================================
+  solutions: [
+    {
+      problemId: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "Problem",
       },
-    ],
-    submittedAt: {
-      type: Date,
-      default: Date.now,
+      code: {
+        type: String,
+        default: "",
+      },
+      language: {
+        type: String,
+        default: "python",
+      },
+      status: {
+        type: String,
+        enum: [
+          "accepted",
+          "wrong_answer",
+          "runtime_error",
+          "compilation_error",
+          "pending",
+        ],
+        default: "pending",
+      },
+      passedTests: {
+        type: Number,
+        default: 0,
+      },
+      totalTests: {
+        type: Number,
+        default: 0,
+      },
+      executionTime: {
+        type: Number,
+        default: 0,
+      },
+      submittedAt: {
+        type: Date,
+        default: Date.now,
+      },
     },
-  });
+  ],
 
-  export default mongoose.model("Submission", submissionSchema);
+  // ============================================
+  // ✅ AGGREGATED SCORES
+  // ============================================
+  passedCount: {
+    type: Number,
+    default: 0,
+  },
+  totalProblems: {
+    type: Number,
+    default: 0,
+  },
+  percentage: {
+    type: Number,
+    default: 0,
+  },
+  passed: {
+    type: Boolean,
+    default: false,
+  },
+  submittedAt: {
+    type: Date,
+  },
+});
+
+// ✅ Indexes
+codingTestAttemptSchema.index({ userId: 1, testId: 1 }, { unique: true });
+codingTestAttemptSchema.index({ testId: 1, status: 1 });
+
+export default mongoose.model("CodingTestAttempt", codingTestAttemptSchema);

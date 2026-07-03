@@ -2,24 +2,93 @@
 import express from "express";
 import Problem from "../models/Problem.js";
 import Submission from "../models/Submission.js";
+import CodingTestAttempt from "../models/TestAttempt.js";
 import judge0Service from "../services/judge0Service.js";
 
 const router = express.Router();
 
+router.post("/coding-tests/create", async (req, res) => {
+  try {
+    const {
+      title,
+      description,
+      subject,
+      topic,
+      college,
+      duration,
+      problems,
+      startTime,
+      endTime,
+      passingPercentage,
+    } = req.body;
+
+    console.log("📝 Creating coding test:", title);
+    console.log("📝 Request body:", req.body);
+
+    // Validate required fields
+    if (
+      !title ||
+      !subject ||
+      !topic ||
+      !college ||
+      !duration ||
+      !startTime ||
+      !endTime
+    ) {
+      return res.status(400).json({
+        success: false,
+        message: "Missing required fields",
+      });
+    }
+
+    // Generate unique testId
+    const testId = `TEST_${Date.now()}`;
+
+    // Get user ID from request
+    const userId = req.userId || "admin";
+
+    // Create test
+    const test = new CodingTest({
+      title,
+      description: description || "",
+      subject,
+      topic,
+      college,
+      duration: parseInt(duration),
+      problems: problems || [],
+      startTime: new Date(startTime),
+      endTime: new Date(endTime),
+      totalQuestions: problems?.length || 0,
+      isActive: true,
+      createdBy: userId,
+    });
+
+    await test.save();
+
+    console.log(`✅ Coding test created: ${testId} - ${title}`);
+
+    res.json({
+      success: true,
+      message: "Coding test created successfully",
+      test,
+    });
+  } catch (error) {
+    console.error("❌ Error creating coding test:", error);
+    res.status(500).json({
+      success: false,
+      message: error.message || "Failed to create coding test",
+    });
+  }
+});
 // ============================================
 // POST /api/coding/submit
 // Submit code - Runs ALL test cases (Sample + Hidden)
-// Saves to database
+// Saves to database AND groups by user per test
 // ============================================
 router.post("/submit", async (req, res) => {
   try {
-    const { problemId, code, language } = req.body;
-    const userId = "test_user_123";
-
-    console.log(`📝 ===== NEW SUBMISSION =====`);
-    console.log(`📝 Problem: ${problemId}`);
-    console.log(`💻 Language: ${language}`);
-    console.log(`📝 Code length: ${code.length} characters`);
+    const { problemId, code, language, testId } = req.body;
+    const userId = req.userId || "test_user_123";
 
     const languageId = judge0Service.getLanguageId(language);
     if (!languageId) {
@@ -84,10 +153,18 @@ router.post("/submit", async (req, res) => {
       finalStatus = "Wrong Answer";
     }
 
-    // Save submission to database
+    // ============================================
+    // ✅ STEP 1: Save individual submission (for code history)
+    // ============================================
+    const totalExecutionTime = result.results.reduce((sum, r) => {
+      const time = parseFloat(r.executionTime) || 0;
+      return sum + time;
+    }, 0);
+
     const submission = new Submission({
       userId,
       problemId: problem._id,
+      testId: testId || "DEFAULT_TEST",
       language,
       code,
       status: finalStatus,
@@ -95,18 +172,73 @@ router.post("/submit", async (req, res) => {
       totalTestCases: result.totalCount,
       score: result.score,
       testResults: result.results,
+      executionTime: totalExecutionTime,
     });
-
-    const totalExecutionTime = result.results.reduce((sum, r) => {
-      const time = parseFloat(r.executionTime) || 0;
-      return sum + time;
-    }, 0);
-    submission.executionTime = totalExecutionTime;
 
     await submission.save();
     console.log(`✅ Submission saved to database (ID: ${submission._id})`);
 
-    // Update problem stats
+    // ============================================
+    // ✅ STEP 2: Group by user in CodingTestAttempt
+    // ============================================
+    if (testId) {
+      let attempt = await CodingTestAttempt.findOne({
+        userId,
+        testId,
+        status: "in_progress",
+      });
+
+      if (!attempt) {
+        attempt = new CodingTestAttempt({
+          userId,
+          testId,
+          status: "in_progress",
+          solutions: [],
+          totalProblems: 0,
+        });
+      }
+
+      // Check if solution already exists for this problem
+      const existingIndex = attempt.solutions.findIndex(
+        (s) => s.problemId.toString() === problem._id.toString(),
+      );
+
+      const solutionData = {
+        problemId: problem._id,
+        code,
+        language,
+        status: finalStatus === "Accepted" ? "accepted" : "wrong_answer",
+        passedTests: result.passedCount,
+        totalTests: result.totalCount,
+        executionTime: totalExecutionTime,
+        submittedAt: new Date(),
+      };
+
+      if (existingIndex !== -1) {
+        attempt.solutions[existingIndex] = solutionData;
+      } else {
+        attempt.solutions.push(solutionData);
+      }
+
+      // Update scores
+      const acceptedSolutions = attempt.solutions.filter(
+        (s) => s.status === "accepted",
+      );
+      attempt.passedCount = acceptedSolutions.length;
+      attempt.totalProblems = attempt.solutions.length;
+      attempt.percentage =
+        attempt.totalProblems > 0
+          ? (acceptedSolutions.length / attempt.totalProblems) * 100
+          : 0;
+      attempt.passed = attempt.percentage >= 40;
+
+      await attempt.save();
+      console.log(`✅ Grouped submission for user ${userId} in test ${testId}`);
+    }
+
+    // ============================================
+    // ✅ STEP 3: Update problem stats
+    // ============================================
     problem.totalSubmissions = (problem.totalSubmissions || 0) + 1;
     if (finalStatus === "Accepted") {
       problem.acceptedSubmissions = (problem.acceptedSubmissions || 0) + 1;
@@ -122,11 +254,9 @@ router.post("/submit", async (req, res) => {
     );
 
     // ============================================
-    // ✅ FILTER: Only return sample test cases to frontend
-    // Hidden test cases are NOT sent to frontend
+    // ✅ STEP 4: Filter results for frontend
     // ============================================
     const sampleTestResults = result.results.filter((r, index) => {
-      // Check if this test case is hidden
       const testCase = testCases[index];
       return testCase && !testCase.isHidden;
     });
@@ -148,7 +278,6 @@ router.post("/submit", async (req, res) => {
       score: result.score,
       executionTime: parseFloat(submission.executionTime) || 0,
       isSaved: true,
-      // ✅ Only send sample test cases to frontend
       testResults: sampleTestResults.map((r) => ({
         testCase: r.testCase,
         passed: r.passed,
@@ -159,9 +288,8 @@ router.post("/submit", async (req, res) => {
         error: r.error || undefined,
         executionTime: r.executionTime,
         memoryUsed: r.memoryUsed,
-        isHidden: false, // Never send hidden flag to frontend
+        isHidden: false,
       })),
-      // ✅ Send hidden count separately (without details)
       hiddenCount: hiddenTestResults.length,
       hiddenPassed: hiddenTestResults.filter((r) => r.passed).length,
       errorMessage: firstError?.error || undefined,
@@ -278,7 +406,7 @@ router.post("/run-samples", async (req, res) => {
         error: r.error || undefined,
         executionTime: r.executionTime,
         memoryUsed: r.memoryUsed,
-        isHidden: false, // Samples are never hidden
+        isHidden: false,
       })),
       hiddenCount: 0,
       hiddenPassed: 0,
@@ -311,7 +439,6 @@ router.get("/problem/:problemId/testcases", async (req, res) => {
       });
     }
 
-    // ✅ Only return sample test cases (not hidden ones)
     const sampleTestCases = problem.testCases
       .filter((tc) => !tc.isHidden)
       .map((tc) => ({

@@ -35,20 +35,21 @@ const ProblemsList = () => {
   const [hoveredProblem, setHoveredProblem] = useState(null);
 
   // ✅ Check if user is admin - Replace with your actual admin check logic
-  const [isAdmin, setIsAdmin] = useState(false);
+  const [isAdmin, setIsAdmin] = useState(true);
 
   useEffect(() => {
     // ✅ Check user role from localStorage or context
     const checkAdminStatus = () => {
-      try {
-        const user = JSON.parse(localStorage.getItem("user") || "{}");
-        // Check if user has admin role
-        // Adjust this based on your actual user object structure
-        setIsAdmin(user?.role === "admin" || user?.isAdmin === true);
-      } catch (error) {
-        console.error("Error checking admin status:", error);
-        setIsAdmin(false);
-      }
+      // try {
+      //   const user = JSON.parse(localStorage.getItem("user") || "{}");
+      //   // Check if user has admin role
+      //   // Adjust this based on your actual user object structure
+      //   setIsAdmin(user?.role === "admin" || user?.isAdmin === true);
+      // } catch (error) {
+      //   console.error("Error checking admin status:", error);
+      //   setIsAdmin(true);
+      // }
+      setIsAdmin(true);
     };
 
     checkAdminStatus();

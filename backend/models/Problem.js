@@ -18,6 +18,15 @@ const solutionSchema = new mongoose.Schema({
 
 const problemSchema = new mongoose.Schema({
   problemId: { type: String, unique: true, required: true },
+
+  // ✅ NEW: Add testId field
+  testId: {
+    type: String,
+    required: true,
+    default: "DEFAULT_TEST",
+    index: true,
+  },
+
   title: { type: String, required: true },
   description: { type: String, required: true },
   difficulty: {
@@ -57,5 +66,8 @@ const problemSchema = new mongoose.Schema({
   createdAt: { type: Date, default: Date.now },
   updatedAt: { type: Date, default: Date.now },
 });
+
+// ✅ Add index for faster queries
+problemSchema.index({ testId: 1, problemId: 1 });
 
 export default mongoose.model("Problem", problemSchema);
