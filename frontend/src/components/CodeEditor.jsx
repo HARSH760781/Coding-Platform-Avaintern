@@ -52,7 +52,7 @@ const CodeEditor = ({ problemId, onSubmissionComplete }) => {
         timestamp: new Date().toISOString(),
       };
       localStorage.setItem(`editor_${problemId}`, JSON.stringify(state));
-      console.log(`💾 Saved editor state for ${problemId}`);
+      // console.log(`💾 Saved editor state for ${problemId}`);
     } catch (error) {
       console.error("Error saving editor state:", error);
     }
@@ -63,7 +63,7 @@ const CodeEditor = ({ problemId, onSubmissionComplete }) => {
       const saved = localStorage.getItem(`editor_${problemId}`);
       if (saved) {
         const data = JSON.parse(saved);
-        console.log(`📂 Loaded editor state for ${problemId}`);
+        // console.log(`📂 Loaded editor state for ${problemId}`);
         return data;
       }
     } catch (error) {
@@ -75,7 +75,7 @@ const CodeEditor = ({ problemId, onSubmissionComplete }) => {
   const clearEditorState = (problemId) => {
     try {
       localStorage.removeItem(`editor_${problemId}`);
-      console.log(`🗑️ Cleared editor state for ${problemId}`);
+      // console.log(`🗑️ Cleared editor state for ${problemId}`);
     } catch (error) {
       console.error("Error clearing editor state:", error);
     }
@@ -84,18 +84,18 @@ const CodeEditor = ({ problemId, onSubmissionComplete }) => {
   // Load sample test cases
   const loadSampleTestCases = async () => {
     try {
-      console.log("📡 Fetching sample test cases for:", problemId);
+      //   console.log("📡 Fetching sample test cases for:", problemId);
       const response = await getSampleTestCases(problemId);
-      console.log("📦 Sample test cases response:", response.data);
+      // console.log("📦 Sample test cases response:", response.data);
       const testCases = response.data.testCases || [];
-      console.log("📦 Test cases count:", testCases.length);
+      // console.log("📦 Test cases count:", testCases.length);
       setSampleTestCases(testCases);
 
       if (testCases.length === 0) {
         console.warn("⚠️ No sample test cases found for this problem");
       }
     } catch (error) {
-      console.error("Error loading test cases:", error);
+      // console.error("Error loading test cases:", error);
       toast.error("Failed to load test cases");
     }
   };
@@ -127,7 +127,7 @@ const CodeEditor = ({ problemId, onSubmissionComplete }) => {
         setLanguage(savedState.language || "python");
         setCode(savedState.code || "");
         setIsAccepted(savedState.isAccepted || false);
-        console.log(`📂 Restored previous state for ${problemId}`);
+        // console.log(`📂 Restored previous state for ${problemId}`);
       } else {
         loadStarterCode();
       }
@@ -209,7 +209,7 @@ const CodeEditor = ({ problemId, onSubmissionComplete }) => {
     formatCode();
     setLoading(true);
     setLoadingType("run");
-    setOutput("⏳ Running sample tests...");
+    // setOutput("⏳ Running sample tests...");
     setTestResults([]);
     setStatus(null);
     setScore(null);
