@@ -75,7 +75,7 @@ const ProblemsList = () => {
     // ✅ Listen for storage changes (in case auth data comes after page load)
     const handleStorageChange = (e) => {
       if (e.key === "role" || e.key === "user" || e.key === "token") {
-        console.log("🔄 Storage changed, rechecking admin status...");
+        // console.log("🔄 Storage changed, rechecking admin status...");
         checkAdminStatus();
       }
     };
@@ -95,7 +95,7 @@ const ProblemsList = () => {
       }
 
       if (event.data?.type === "USER_AUTH_DATA") {
-        console.log("📥 Received auth data via postMessage in ProblemsList");
+        // console.log("📥 Received auth data via postMessage in ProblemsList");
         const { role } = event.data.data;
         if (role === "admin") {
           setIsAdmin(true);

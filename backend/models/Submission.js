@@ -65,11 +65,56 @@ const codingTestAttemptSchema = new mongoose.Schema({
       status: {
         type: String,
         enum: [
+          // ✅ Accepted formats (all variants)
           "accepted",
+          "Accepted",
+          "Accepted ✅",
+
+          // ✅ Wrong Answer formats
           "wrong_answer",
+          "wrong-answer",
+          "Wrong Answer",
+          "Wrong Answer ❌",
+          "WA",
+
+          // ✅ Runtime Error formats
           "runtime_error",
+          "runtime-error",
+          "Runtime Error",
+          "Runtime Error ⚠️",
+          "RE",
+
+          // ✅ Compilation Error formats
           "compilation_error",
+          "compilation-error",
+          "Compilation Error",
+          "Compilation Error 🔧",
+          "CE",
+
+          // ✅ Time Limit formats
+          "time_limit",
+          "time_limit_exceeded",
+          "time-limit-exceeded",
+          "Time Limit Exceeded",
+          "TLE",
+
+          // ✅ Pending formats
           "pending",
+          "Pending",
+          "Pending ⏳",
+
+          // ✅ Other common statuses
+          "partially_accepted",
+          "Partially Accepted",
+          "memory_limit_exceeded",
+          "Memory Limit Exceeded",
+          "MLE",
+          "output_limit_exceeded",
+          "Output Limit Exceeded",
+          "OLE",
+          "internal_error",
+          "Internal Error",
+          "IE",
         ],
         default: "pending",
       },

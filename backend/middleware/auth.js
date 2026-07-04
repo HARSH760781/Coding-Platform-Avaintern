@@ -1,76 +1,73 @@
-// // backend/middleware/auth.js
-// import jwt from "jsonwebtoken";
-// import User from "../models/User.js";
-
-// export const protect = async (req, res, next) => {
-//   const token = req.header("Authorization")?.replace("Bearer ", "");
-
-//   if (!token) {
-//     return res.status(401).json({ error: "No token provided" });
-//   }
-
-//   try {
-//     const decoded = jwt.verify(token, process.env.JWT_SECRET);
-//     const user = await User.findById(decoded.id).select("-password");
-
-//     if (!user) {
-//       return res.status(401).json({ error: "Invalid token" });
-//     }
-
-//     req.user = user;
-//     req.userId = user._id;
-//     next();
-//   } catch (error) {
-//     res.status(401).json({ error: "Invalid token" });
-//   }
-// };
-
 // backend/middleware/auth.js
 import jwt from "jsonwebtoken";
 import User from "../models/User.js";
 
 export const protect = async (req, res, next) => {
-  // ============================================
-  // TEMPORARY BYPASS FOR TESTING
-  // Remove this when integrating with main website
-  // ============================================
-  const bypassAuth = true; // Set to false when done testing
-
-  if (bypassAuth) {
-    console.log("🔓 Auth bypassed - using test user");
-    // Create a dummy user for testing
-    req.user = {
-      _id: "test_user_123",
-      id: "test_user_123",
-      fullName: "Test User",
-      email: "test@example.com",
-      role: "admin",
-    };
-    req.userId = "test_user_123";
-    return next();
-  }
-
-  // ============================================
-  // REAL AUTHENTICATION (Keep this for production)
-  // ============================================
-  const token = req.header("Authorization")?.replace("Bearer ", "");
-
-  if (!token) {
-    return res.status(401).json({ error: "No token provided" });
-  }
-
   try {
-    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    // Get token from Authorization header
+    const token = req.header("Authorization")?.replace("Bearer ", "");
+
+    if (!token) {
+      console.log("❌ No token provided");
+      return res.status(401).json({
+        success: false,
+        error: "No token provided. Please login.",
+      });
+    }
+
+    console.log("🔑 Token received:", token.substring(0, 20) + "...");
+
+    // Verify token
+    let decoded;
+    try {
+      decoded = jwt.verify(token, process.env.JWT_SECRET);
+      console.log("✅ Token verified:", decoded);
+    } catch (error) {
+      console.error("❌ Token verification failed:", error.message);
+      if (error.name === "JsonWebTokenError") {
+        return res.status(401).json({
+          success: false,
+          error: "Invalid token. Please login again.",
+        });
+      }
+      if (error.name === "TokenExpiredError") {
+        return res.status(401).json({
+          success: false,
+          error: "Token expired. Please login again.",
+        });
+      }
+      throw error;
+    }
+
+    // Get user from database
     const user = await User.findById(decoded.id).select("-password");
 
     if (!user) {
-      return res.status(401).json({ error: "Invalid token" });
+      console.log("❌ User not found for ID:", decoded.id);
+      return res.status(401).json({
+        success: false,
+        error: "User not found. Please login again.",
+      });
     }
 
+    console.log("✅ User found:", {
+      id: user._id,
+      email: user.email,
+      role: user.role,
+    });
+
+    // ✅ Attach user to request
     req.user = user;
-    req.userId = user._id;
+    req.userId = user._id; // This is the ObjectId
+    req.userRole = user.role;
+    req.token = token;
+
     next();
   } catch (error) {
-    res.status(401).json({ error: "Invalid token" });
+    console.error("❌ Auth error:", error);
+    res.status(500).json({
+      success: false,
+      error: "Authentication failed. Please try again.",
+    });
   }
 };

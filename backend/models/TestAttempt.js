@@ -1,6 +1,4 @@
 // backend/models/TestAttempt.js
-// ✅ UPDATED VERSION
-
 import mongoose from "mongoose";
 
 const testAttemptSchema = new mongoose.Schema({
@@ -27,8 +25,6 @@ const testAttemptSchema = new mongoose.Schema({
     enum: ["in_progress", "completed", "timed_out"],
     default: "in_progress",
   },
-
-  // ✅ NEW: Array of solutions (grouped)
   solutions: [
     {
       problemId: {
@@ -46,11 +42,44 @@ const testAttemptSchema = new mongoose.Schema({
       status: {
         type: String,
         enum: [
+          // ✅ All possible status values
           "accepted",
+          "Accepted",
+          "Accepted ✅",
           "wrong_answer",
+          "wrong-answer",
+          "Wrong Answer",
+          "Wrong Answer ❌",
+          "WA",
           "runtime_error",
+          "runtime-error",
+          "Runtime Error",
+          "Runtime Error ⚠️",
+          "RE",
           "compilation_error",
+          "compilation-error",
+          "Compilation Error",
+          "Compilation Error 🔧",
+          "CE",
+          "time_limit",
+          "time_limit_exceeded",
+          "time-limit-exceeded",
+          "Time Limit Exceeded",
+          "TLE",
           "pending",
+          "Pending",
+          "Pending ⏳",
+          "partially_accepted",
+          "Partially Accepted",
+          "memory_limit_exceeded",
+          "Memory Limit Exceeded",
+          "MLE",
+          "output_limit_exceeded",
+          "Output Limit Exceeded",
+          "OLE",
+          "internal_error",
+          "Internal Error",
+          "IE",
         ],
         default: "pending",
       },
@@ -72,8 +101,6 @@ const testAttemptSchema = new mongoose.Schema({
       },
     },
   ],
-
-  // ✅ NEW: Aggregated scores
   passedCount: {
     type: Number,
     default: 0,
@@ -97,5 +124,11 @@ const testAttemptSchema = new mongoose.Schema({
 
 testAttemptSchema.index({ userId: 1, testId: 1 }, { unique: true });
 testAttemptSchema.index({ testId: 1, status: 1 });
+
+// ✅ Clear the model cache before exporting
+// This ensures Mongoose uses the updated schema
+if (mongoose.models.TestAttempt) {
+  delete mongoose.models.TestAttempt;
+}
 
 export default mongoose.model("TestAttempt", testAttemptSchema);

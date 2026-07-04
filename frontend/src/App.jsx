@@ -22,7 +22,7 @@ function App() {
 
       if (token && role) {
         setIsAdmin(role === "admin");
-        console.log("📋 Existing auth found:", { role, hasToken: !!token });
+        // console.log("📋 Existing auth found:", { role, hasToken: !!token });
       }
       setIsLoading(false);
     };
@@ -47,13 +47,13 @@ function App() {
         const { token, role, userId, email, testId, testTitle } =
           event.data.data;
 
-        console.log("📥 Received auth data:", {
-          hasToken: !!token,
-          role: role,
-          userId: userId,
-          testId: testId,
-          testTitle: testTitle,
-        });
+        // console.log("📥 Received auth data:", {
+        //   hasToken: !!token,
+        //   role: role,
+        //   userId: userId,
+        //   testId: testId,
+        //   testTitle: testTitle,
+        // });
 
         // ✅ Store in localStorage
         if (token) localStorage.setItem("token", token);
@@ -73,14 +73,14 @@ function App() {
         }
 
         // 🎯 Optionally, you can trigger a re-render or fetch data
-        console.log("✅ Auth data synchronized successfully!");
+        // console.log("✅ Auth data synchronized successfully!");
 
         // If user is admin, they can access admin panel
-        if (role === "admin") {
-          console.log("👑 Admin access granted!");
-        } else {
-          console.log("👤 User access granted!");
-        }
+        // if (role === "admin") {
+        //   // console.log("👑 Admin access granted!");
+        // } else {
+        //   console.log("👤 User access granted!");
+        // }
       }
     };
 
