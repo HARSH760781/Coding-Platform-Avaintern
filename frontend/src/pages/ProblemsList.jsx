@@ -22,7 +22,7 @@ import {
   Medal,
   Star,
   Eye,
-  Shield, // ✅ Added Shield icon for admin
+  Shield,
 } from "lucide-react";
 
 const ProblemsList = () => {
@@ -33,28 +33,86 @@ const ProblemsList = () => {
   const [solvedProblems, setSolvedProblems] = useState([]);
   const [stats, setStats] = useState({ total: 0, easy: 0, medium: 0, hard: 0 });
   const [hoveredProblem, setHoveredProblem] = useState(null);
-
-  // ✅ Check if user is admin - Replace with your actual admin check logic
-  const [isAdmin, setIsAdmin] = useState(true);
+  const [isAdmin, setIsAdmin] = useState(false);
+  const [authChecked, setAuthChecked] = useState(false);
 
   useEffect(() => {
-    // ✅ Check user role from localStorage or context
+    // ✅ Check user role from localStorage
     const checkAdminStatus = () => {
-      // try {
-      //   const user = JSON.parse(localStorage.getItem("user") || "{}");
-      //   // Check if user has admin role
-      //   // Adjust this based on your actual user object structure
-      //   setIsAdmin(user?.role === "admin" || user?.isAdmin === true);
-      // } catch (error) {
-      //   console.error("Error checking admin status:", error);
-      //   setIsAdmin(true);
-      // }
-      setIsAdmin(true);
+      try {
+        // Check multiple possible storage locations
+        const role = localStorage.getItem("role");
+        const userStr = localStorage.getItem("user");
+        const user = userStr ? JSON.parse(userStr) : {};
+
+        // Also check if token exists (user is logged in)
+        const token = localStorage.getItem("token");
+
+        // Check if role is admin from various sources
+        const isAdminUser =
+          role === "admin" || user?.role === "admin" || user?.isAdmin === true;
+
+        // console.log("👤 User role check:", {
+        //   role,
+        //   userRole: user?.role,
+        //   isAdmin: isAdminUser,
+        //   hasToken: !!token,
+        // });
+
+        setIsAdmin(isAdminUser);
+        setAuthChecked(true);
+      } catch (error) {
+        console.error("Error checking admin status:", error);
+        setIsAdmin(false);
+        setAuthChecked(true);
+      }
     };
 
     checkAdminStatus();
     fetchProblems();
     checkSolvedProblems();
+
+    // ✅ Listen for storage changes (in case auth data comes after page load)
+    const handleStorageChange = (e) => {
+      if (e.key === "role" || e.key === "user" || e.key === "token") {
+        console.log("🔄 Storage changed, rechecking admin status...");
+        checkAdminStatus();
+      }
+    };
+    window.addEventListener("storage", handleStorageChange);
+
+    // ✅ Listen for messages from parent window (postMessage)
+    const handleMessage = (event) => {
+      // Verify the sender origin
+      const allowedOrigins = [
+        "https://your-main-app.onrender.com",
+        "http://localhost:5173",
+        "http://localhost:3000",
+      ];
+
+      if (!allowedOrigins.includes(event.origin)) {
+        return;
+      }
+
+      if (event.data?.type === "USER_AUTH_DATA") {
+        console.log("📥 Received auth data via postMessage in ProblemsList");
+        const { role } = event.data.data;
+        if (role === "admin") {
+          setIsAdmin(true);
+          localStorage.setItem("role", "admin");
+        } else {
+          setIsAdmin(false);
+          localStorage.setItem("role", "user");
+        }
+        setAuthChecked(true);
+      }
+    };
+    window.addEventListener("message", handleMessage);
+
+    return () => {
+      window.removeEventListener("storage", handleStorageChange);
+      window.removeEventListener("message", handleMessage);
+    };
   }, []);
 
   const fetchProblems = async () => {
@@ -240,8 +298,8 @@ const ProblemsList = () => {
                 </div>
               </div>
 
-              {/* ✅ Admin Button - Only visible to admin */}
-              {isAdmin && (
+              {/* ✅ Admin Button - ONLY visible when isAdmin is true */}
+              {isAdmin && authChecked && (
                 <Link
                   to="/admin"
                   className="flex items-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-1.5 sm:py-2 bg-indigo-50 text-indigo-700 hover:bg-indigo-100 rounded-xl border border-indigo-200 transition-all duration-300 text-xs sm:text-sm font-medium whitespace-nowrap"
@@ -251,6 +309,13 @@ const ProblemsList = () => {
                   <span className="xs:hidden">Admin</span>
                 </Link>
               )}
+
+              {/* Optional: Show a debug indicator (remove in production)
+              {process.env.NODE_ENV === "development" && (
+                <span className="text-[8px] text-gray-400">
+                  {isAdmin ? "👑" : "👤"}
+                </span>
+              )} */}
             </div>
           </div>
         </div>
@@ -260,7 +325,7 @@ const ProblemsList = () => {
       {/* MAIN CONTENT - Responsive */}
       {/* ============================================ */}
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-6">
-        {/* Stats Cards - 2x2 on mobile, 4 on desktop */}
+        {/* Stats Cards */}
         <div className="grid grid-cols-2 md:grid-cols-3 gap-3 mb-4 sm:mb-6">
           <div className="bg-white rounded-xl border border-gray-200 p-3 sm:p-4 shadow-sm hover:shadow-md transition-all">
             <div className="flex items-center justify-between">
@@ -340,7 +405,7 @@ const ProblemsList = () => {
           </div>
         </div>
 
-        {/* Search & Filter - Responsive */}
+        {/* Search & Filter */}
         <div className="flex flex-col sm:flex-row gap-3 mb-4 sm:mb-6">
           <div className="relative flex-1">
             <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
@@ -366,7 +431,7 @@ const ProblemsList = () => {
           </select>
         </div>
 
-        {/* Problems List - Responsive */}
+        {/* Problems List */}
         <div className="space-y-2 sm:space-y-3">
           {filteredProblems.map((problem, idx) => {
             const isSolved = solvedProblems.includes(problem.problemId);

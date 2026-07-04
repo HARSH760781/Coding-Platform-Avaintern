@@ -1,9 +1,6 @@
 // frontend/src/services/api.js
 import axios from "axios";
 
-console.log("Environment:", import.meta.env);
-console.log("VITE_API_URL:", import.meta.env.VITE_API_URL);
-
 const API_URL =
   import.meta.env.VITE_API_URL ||
   "https://coding-platform-avaintern.onrender.com/api";
@@ -14,8 +11,6 @@ const api = axios.create({
     "Content-Type": "application/json",
   },
 });
-
-console.log("Axios Base URL:", api.defaults.baseURL);
 
 // Add token to requests if it exists
 api.interceptors.request.use((config) => {
