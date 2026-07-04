@@ -2,7 +2,7 @@
 import express from "express";
 import Problem from "../models/Problem.js";
 import mongoose from "mongoose";
-import Submission from "../models/Submission.js";
+import CodingTestAttempt from "../models/Submission.js";
 import TestAttempt from "../models/TestAttempt.js";
 import judge0Service from "../services/judge0Service.js";
 import { protect } from "../middleware/auth.js";
@@ -134,10 +134,9 @@ const normalizeStatusForTestAttempt = (status) => {
 router.post("/submit", protect, async (req, res) => {
   try {
     const { problemId, code, language, testId } = req.body;
-
-    // ✅ Get userId from authenticated user
     const userId = req.userId;
 
+    // ✅ Validate user
     if (!userId) {
       return res.status(401).json({
         success: false,
@@ -145,7 +144,6 @@ router.post("/submit", protect, async (req, res) => {
       });
     }
 
-    // ✅ Validate userId
     if (!mongoose.Types.ObjectId.isValid(userId)) {
       return res.status(400).json({
         success: false,
@@ -153,11 +151,25 @@ router.post("/submit", protect, async (req, res) => {
       });
     }
 
+    // ✅ Validate testId
+    if (
+      !testId ||
+      testId === "DEFAULT_TEST" ||
+      testId === "undefined" ||
+      testId === "null"
+    ) {
+      return res.status(400).json({
+        success: false,
+        error: "Invalid test ID. Please start a test first.",
+      });
+    }
+
     console.log(`👤 User ID: ${userId}`);
     console.log(`📝 Problem ID: ${problemId}`);
     console.log(`💻 Language: ${language}`);
-    console.log(`🧪 Test ID: ${testId || "No test ID"}`);
+    console.log(`🧪 Test ID: ${testId}`);
 
+    // ✅ Get language ID
     const languageId = judge0Service.getLanguageId(language);
     if (!languageId) {
       return res.status(400).json({
@@ -166,6 +178,7 @@ router.post("/submit", protect, async (req, res) => {
       });
     }
 
+    // ✅ Find the problem
     const problem = await Problem.findOne({ problemId: problemId });
     if (!problem) {
       return res.status(404).json({
@@ -173,9 +186,6 @@ router.post("/submit", protect, async (req, res) => {
         error: "Problem not found",
       });
     }
-
-    console.log(`📝 Found problem: ${problem.title}`);
-    console.log(`📝 Total test cases: ${problem.testCases.length}`);
 
     const testCases = problem.testCases || [];
     if (testCases.length === 0) {
@@ -185,7 +195,7 @@ router.post("/submit", protect, async (req, res) => {
       });
     }
 
-    // Run ALL test cases
+    // ✅ Run ALL test cases
     let result;
     try {
       result = await judge0Service.runTestCases(code, language, testCases);
@@ -199,7 +209,7 @@ router.post("/submit", protect, async (req, res) => {
 
     // ✅ Determine final status
     let displayStatus = "Pending";
-    let rawStatus = "pending";
+    let enumStatus = "pending";
 
     const hasCompilationError = result.results.some(
       (r) =>
@@ -216,133 +226,162 @@ router.post("/submit", protect, async (req, res) => {
 
     if (hasCompilationError) {
       displayStatus = "Compilation Error";
-      rawStatus = "Compilation Error";
+      enumStatus = "compilation_error";
     } else if (hasRuntimeError) {
       displayStatus = "Runtime Error";
-      rawStatus = "Runtime Error";
+      enumStatus = "runtime_error";
     } else if (hasTimeLimit) {
       displayStatus = "Time Limit Exceeded";
-      rawStatus = "Time Limit Exceeded";
+      enumStatus = "runtime_error";
     } else if (result.passedCount === result.totalCount) {
       displayStatus = "Accepted";
-      rawStatus = "Accepted";
+      enumStatus = "accepted";
     } else {
       displayStatus = "Wrong Answer";
-      rawStatus = "Wrong Answer";
+      enumStatus = "wrong_answer";
     }
 
-    // ✅ Normalize for TestAttempt enum
-    const enumStatus = normalizeStatusForTestAttempt(rawStatus);
-
     console.log(`📊 Display Status: ${displayStatus}`);
-    console.log(`📊 Raw Status: ${rawStatus}`);
     console.log(`📊 Enum Status: ${enumStatus}`);
     console.log(`📊 Passed: ${result.passedCount}/${result.totalCount}`);
 
     // ============================================
-    // STEP 1: Save individual submission
+    // Calculate total execution time
     // ============================================
     const totalExecutionTime = result.results.reduce((sum, r) => {
       const time = parseFloat(r.executionTime) || 0;
       return sum + time;
     }, 0);
 
-    const submission = new Submission({
-      userId: userId,
-      problemId: problem._id,
-      testId: testId || "DEFAULT_TEST",
-      language,
-      code,
-      status: displayStatus,
-      passedTestCases: result.passedCount,
-      totalTestCases: result.totalCount,
-      score: result.score,
-      testResults: result.results,
-      executionTime: totalExecutionTime,
-    });
-
-    await submission.save();
-    console.log(`✅ Submission saved (ID: ${submission._id})`);
-
     // ============================================
-    // STEP 2: Group by user in TestAttempt
+    // ✅ STORE IN CODINGTESTATTEMPT (Nested Structure)
     // ============================================
-    if (testId) {
-      try {
-        let attempt = await TestAttempt.findOne({
+    try {
+      console.log(`🔍 Looking for user: ${userId}`);
+
+      // ✅ Step 1: Find the user's document
+      let userAttempt = await CodingTestAttempt.findOne({ userId: userId });
+
+      if (!userAttempt) {
+        // ✅ Step 2: Create new user document if not exists
+        console.log(`🆕 Creating new user document`);
+        userAttempt = new CodingTestAttempt({
           userId: userId,
+          tests: [],
+          totalTestsTaken: 0,
+          totalProblemsSolved: 0,
+          averageScore: 0,
+        });
+      }
+
+      // ✅ Step 3: Find the test in the tests array
+      let testIndex = userAttempt.tests.findIndex((t) => t.testId === testId);
+
+      if (testIndex === -1) {
+        // ✅ Step 4: Create new test if not exists
+        console.log(`🆕 Creating new test: ${testId}`);
+        const newTest = {
           testId: testId,
           status: "in_progress",
-        });
-
-        if (!attempt) {
-          attempt = new TestAttempt({
-            userId: userId,
-            testId: testId,
-            status: "in_progress",
-            solutions: [],
-            totalProblems: 0,
-            passedCount: 0,
-            percentage: 0,
-            passed: false,
-          });
-        }
-
-        // Check if solution already exists
-        const existingIndex = attempt.solutions.findIndex(
-          (s) =>
-            s.problemId && s.problemId.toString() === problem._id.toString(),
-        );
-
-        // ✅ Use enumStatus for TestAttempt
-        const solutionData = {
-          problemId: problem._id,
-          code: code,
-          language: language,
-          status: enumStatus, // ✅ This is normalized for the enum
-          passedTests: result.passedCount,
-          totalTests: result.totalCount,
-          executionTime: totalExecutionTime,
-          submittedAt: new Date(),
+          startTime: new Date(),
+          solutions: [],
+          totalProblems: 0,
+          passedCount: 0,
+          percentage: 0,
+          passed: false,
         };
-
-        console.log(`🔍 Saving to TestAttempt with status: ${enumStatus}`);
-
-        if (existingIndex !== -1) {
-          attempt.solutions[existingIndex] = solutionData;
-          console.log(`🔄 Updated existing solution`);
-        } else {
-          attempt.solutions.push(solutionData);
-          console.log(`➕ Added new solution`);
-        }
-
-        // Update scores - case insensitive
-        const acceptedSolutions = attempt.solutions.filter(
-          (s) => s.status && s.status.toLowerCase() === "accepted",
-        );
-        attempt.passedCount = acceptedSolutions.length;
-        attempt.totalProblems = attempt.solutions.length;
-        attempt.percentage =
-          attempt.totalProblems > 0
-            ? (acceptedSolutions.length / attempt.totalProblems) * 100
-            : 0;
-        attempt.passed = attempt.percentage >= 40;
-
-        await attempt.save();
-        console.log(`✅ TestAttempt updated for user ${userId}`);
+        userAttempt.tests.push(newTest);
+        testIndex = userAttempt.tests.length - 1;
+      } else {
+        console.log(`📝 Found existing test at index: ${testIndex}`);
         console.log(
-          `📊 Problems solved: ${attempt.passedCount}/${attempt.totalProblems}`,
+          `📝 Current solutions: ${userAttempt.tests[testIndex].solutions.length}`,
         );
-        console.log(`📊 Percentage: ${attempt.percentage}%`);
-      } catch (error) {
-        console.error("❌ Error updating TestAttempt:", error);
-        console.error("Error details:", error.errors);
-        // Don't fail the whole request if this fails
       }
+
+      // ✅ Step 5: Get the test
+      const test = userAttempt.tests[testIndex];
+
+      // ✅ Step 6: Check if solution already exists for this problem
+      const existingIndex = test.solutions.findIndex(
+        (s) => s.problemId && s.problemId.toString() === problem._id.toString(),
+      );
+
+      // ✅ Step 7: Create solution data
+      const solutionData = {
+        problemId: problem._id,
+        problemTitle: problem.title || "",
+        code: code,
+        language: language,
+        status: enumStatus,
+        passedTests: result.passedCount,
+        totalTests: result.totalCount,
+        executionTime: totalExecutionTime,
+        submittedAt: new Date(),
+      };
+
+      // ✅ Step 8: Update or add solution
+      if (existingIndex !== -1) {
+        test.solutions[existingIndex] = solutionData;
+        console.log(`🔄 Updated solution for ${problemId}`);
+      } else {
+        test.solutions.push(solutionData);
+        console.log(`➕ Added solution for ${problemId}`);
+      }
+
+      // ✅ Step 9: Update test stats
+      const acceptedSolutions = test.solutions.filter(
+        (s) => s.status === "accepted",
+      );
+      test.passedCount = acceptedSolutions.length;
+      test.totalProblems = test.solutions.length;
+      test.percentage =
+        test.totalProblems > 0
+          ? (acceptedSolutions.length / test.totalProblems) * 100
+          : 0;
+      test.passed = test.percentage >= 40;
+
+      // ✅ Step 10: Mark test as completed if all problems solved
+      if (test.totalProblems > 0 && test.passedCount === test.totalProblems) {
+        test.status = "completed";
+        test.endTime = new Date();
+        test.submittedAt = new Date();
+        console.log(`🎉 Test ${testId} completed!`);
+      }
+
+      // ✅ Step 11: Update overall user stats
+      const allTests = userAttempt.tests;
+      userAttempt.totalTestsTaken = allTests.length;
+      userAttempt.totalProblemsSolved = allTests.reduce(
+        (sum, t) => sum + t.passedCount,
+        0,
+      );
+      const totalAttempted = allTests.reduce(
+        (sum, t) => sum + t.totalProblems,
+        0,
+      );
+      userAttempt.averageScore =
+        totalAttempted > 0
+          ? (userAttempt.totalProblemsSolved / totalAttempted) * 100
+          : 0;
+
+      // ✅ Step 12: Save everything
+      await userAttempt.save();
+      console.log(`✅✅✅ Successfully saved!`);
+      console.log(
+        `📊 Test: ${test.passedCount}/${test.totalProblems} (${test.percentage}%)`,
+      );
+      console.log(
+        `📊 User: ${userAttempt.totalProblemsSolved} problems solved`,
+      );
+    } catch (error) {
+      console.error("❌❌❌ ERROR saving to CodingTestAttempt:", error);
+      console.error("Error details:", error.errors || error.message);
+      // Don't fail the whole request if this fails
     }
 
     // ============================================
-    // STEP 3: Update problem stats
+    // Update problem stats
     // ============================================
     problem.totalSubmissions = (problem.totalSubmissions || 0) + 1;
     if (enumStatus === "accepted") {
@@ -354,29 +393,23 @@ router.post("/submit", protect, async (req, res) => {
         : 0;
     await problem.save();
 
+    // ============================================
+    // Return response
+    // ============================================
     const firstError = result.results.find(
       (r) => r.error && r.error.length > 0,
     );
-
-    // ============================================
-    // STEP 4: Filter results for frontend
-    // ============================================
     const sampleTestResults = result.results.filter((r, index) => {
       const testCase = testCases[index];
       return testCase && !testCase.isHidden;
     });
-
     const hiddenTestResults = result.results.filter((r, index) => {
       const testCase = testCases[index];
       return testCase && testCase.isHidden;
     });
 
-    console.log(`📊 Sample test cases: ${sampleTestResults.length}`);
-    console.log(`🔒 Hidden test cases: ${hiddenTestResults.length}`);
-
     res.json({
       success: true,
-      submissionId: submission._id,
       status: displayStatus,
       passedTests: result.passedCount,
       totalTests: result.totalCount,
@@ -407,6 +440,106 @@ router.post("/submit", protect, async (req, res) => {
       ...(process.env.NODE_ENV === "development" && {
         stack: error.stack,
       }),
+    });
+  }
+});
+
+router.get("/test/:testId/results", protect, async (req, res) => {
+  try {
+    const { testId } = req.params;
+    const userId = req.userId;
+
+    const userAttempt = await CodingTestAttempt.findOne({ userId: userId });
+
+    if (!userAttempt) {
+      return res.status(404).json({
+        success: false,
+        error: "No test data found for this user",
+      });
+    }
+
+    const test = userAttempt.tests.find((t) => t.testId === testId);
+
+    if (!test) {
+      return res.status(404).json({
+        success: false,
+        error: "Test not found",
+      });
+    }
+
+    res.json({
+      success: true,
+      test: {
+        testId: test.testId,
+        status: test.status,
+        startTime: test.startTime,
+        endTime: test.endTime,
+        totalProblems: test.totalProblems,
+        passedCount: test.passedCount,
+        percentage: test.percentage,
+        passed: test.passed,
+        solutions: test.solutions,
+      },
+      userStats: {
+        totalTestsTaken: userAttempt.totalTestsTaken,
+        totalProblemsSolved: userAttempt.totalProblemsSolved,
+        averageScore: userAttempt.averageScore,
+      },
+    });
+  } catch (error) {
+    console.error("❌ Error fetching test results:", error);
+    res.status(500).json({
+      success: false,
+      error: error.message || "Failed to fetch test results",
+    });
+  }
+});
+
+// ============================================
+// GET /api/coding/user/stats
+// Get overall user stats
+// ============================================
+router.get("/user/stats", protect, async (req, res) => {
+  try {
+    const userId = req.userId;
+
+    const userAttempt = await CodingTestAttempt.findOne({ userId: userId });
+
+    if (!userAttempt) {
+      return res.json({
+        success: true,
+        stats: {
+          totalTestsTaken: 0,
+          totalProblemsSolved: 0,
+          averageScore: 0,
+          tests: [],
+        },
+      });
+    }
+
+    res.json({
+      success: true,
+      stats: {
+        totalTestsTaken: userAttempt.totalTestsTaken,
+        totalProblemsSolved: userAttempt.totalProblemsSolved,
+        averageScore: userAttempt.averageScore,
+        tests: userAttempt.tests.map((t) => ({
+          testId: t.testId,
+          status: t.status,
+          totalProblems: t.totalProblems,
+          passedCount: t.passedCount,
+          percentage: t.percentage,
+          passed: t.passed,
+          startTime: t.startTime,
+          endTime: t.endTime,
+        })),
+      },
+    });
+  } catch (error) {
+    console.error("❌ Error fetching user stats:", error);
+    res.status(500).json({
+      success: false,
+      error: error.message || "Failed to fetch user stats",
     });
   }
 });
@@ -578,7 +711,7 @@ router.get("/problem/:problemId/testcases", async (req, res) => {
 router.get("/submissions/:userId", async (req, res) => {
   try {
     const { userId } = req.params;
-    const submissions = await Submission.find({ userId })
+    const submissions = await CodingTestAttempt.find({ userId })
       .populate("problemId", "title problemId difficulty")
       .sort({ submittedAt: -1 })
       .limit(50);

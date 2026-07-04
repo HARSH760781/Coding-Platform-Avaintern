@@ -1,6 +1,6 @@
 // frontend/src/pages/ProblemDetail.jsx
 import React, { useState, useEffect } from "react";
-import { useParams, useNavigate } from "react-router-dom";
+import { useParams, useNavigate, useLocation } from "react-router-dom";
 import { getProblem } from "../services/api";
 import CodeEditor from "../components/CodeEditor";
 import toast from "react-hot-toast";
@@ -8,12 +8,52 @@ import toast from "react-hot-toast";
 const ProblemDetail = () => {
   const { problemId } = useParams();
   const navigate = useNavigate();
+  const location = useLocation();
   const [problem, setProblem] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [submissionStatus, setSubmissionStatus] = useState(null);
   const [submissionScore, setSubmissionScore] = useState(null);
   const [submissionCount, setSubmissionCount] = useState(0);
+
+  const getTestId = () => {
+    // 1. Check URL query params
+    const urlParams = new URLSearchParams(location.search);
+    const urlTestId = urlParams.get("testId");
+    if (urlTestId) return urlTestId;
+
+    // 2. Check localStorage
+    const storedTestId = localStorage.getItem("testId");
+    if (
+      storedTestId &&
+      storedTestId !== "null" &&
+      storedTestId !== "undefined"
+    ) {
+      return storedTestId;
+    }
+
+    // 3. Check sessionStorage
+    const sessionTestId = sessionStorage.getItem("testId");
+    if (
+      sessionTestId &&
+      sessionTestId !== "null" &&
+      sessionTestId !== "undefined"
+    ) {
+      return sessionTestId;
+    }
+
+    // 4. Check if testId was passed via navigation state
+    if (location.state?.testId) {
+      return location.state.testId;
+    }
+
+    return null;
+  };
+
+  const testId = getTestId();
+  // ✅ Debug: Log the testId
+  // console.log("📝 ProblemDetail - testId:", testId);
+  // console.log("📝 ProblemDetail - problemId:", problemId);
 
   useEffect(() => {
     fetchProblem();
@@ -243,11 +283,12 @@ const ProblemDetail = () => {
           </div>
         </div>
       </div>
-
+      {/* {console.log(testId)} */}
       {/* Code Editor Panel */}
       <div className="w-1/2">
         <CodeEditor
           problemId={problem.problemId}
+          testId={testId}
           onSubmissionComplete={handleSubmissionComplete}
         />
       </div>

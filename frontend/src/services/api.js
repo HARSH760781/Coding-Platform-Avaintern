@@ -5,7 +5,7 @@ const API_URL =
   import.meta.env.VITE_API_URL ||
   "https://coding-platform-avaintern.onrender.com/api";
 
-console.log("🔧 API_URL from env:", import.meta.env.VITE_API_URL);
+// console.log("🔧 API_URL from env:", import.meta.env.VITE_API_URL);
 
 const api = axios.create({
   baseURL: API_URL,

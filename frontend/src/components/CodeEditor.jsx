@@ -8,7 +8,7 @@ import {
 } from "../services/api";
 import toast from "react-hot-toast";
 
-const CodeEditor = ({ problemId, onSubmissionComplete }) => {
+const CodeEditor = ({ problemId, onSubmissionComplete, testId }) => {
   const [code, setCode] = useState("");
   const [language, setLanguage] = useState("python");
   const [output, setOutput] = useState("");
@@ -298,6 +298,7 @@ const CodeEditor = ({ problemId, onSubmissionComplete }) => {
         problemId,
         code,
         language,
+        testId: testId,
       });
 
       const data = response.data;
