@@ -911,31 +911,20 @@ router.get("/attempt-status/:testId", protect, async (req, res) => {
     const userId = req.userId;
 
     console.log(`🔍 Checking attempt for user ${userId} on test ${testId}`);
-    console.log(`🔍 Type of testId: ${typeof testId}`);
 
     // ✅ Try to find by _id first (MongoDB ObjectId)
     let codingTest = null;
 
-    // Check if testId is a valid ObjectId
     if (mongoose.Types.ObjectId.isValid(testId)) {
       codingTest = await CodingTest.findById(testId);
-      console.log(`🔍 Searching by _id: ${codingTest ? "Found" : "Not found"}`);
     }
 
-    // If not found by _id, try by testId string
     if (!codingTest) {
       codingTest = await CodingTest.findOne({ testId: testId });
-      console.log(
-        `🔍 Searching by testId string: ${codingTest ? "Found" : "Not found"}`,
-      );
     }
 
-    // If still not found, try by testId field with different format
     if (!codingTest) {
       codingTest = await CodingTest.findOne({ testId: `TEST_${testId}` });
-      console.log(
-        `🔍 Searching by TEST_ prefix: ${codingTest ? "Found" : "Not found"}`,
-      );
     }
 
     if (!codingTest) {
@@ -949,12 +938,13 @@ router.get("/attempt-status/:testId", protect, async (req, res) => {
     console.log(`📝 String testId: ${codingTest.testId}`);
 
     const stringTestId = codingTest.testId;
-
-    // Check in TestResult
-    const testResult = await TestResult.findOne({ testId: stringTestId });
     let hasAttempted = false;
     let attemptStatus = null;
     let attemptData = null;
+    let solutions = []; // ✅ Initialize solutions array
+
+    // Check in TestResult
+    const testResult = await TestResult.findOne({ testId: stringTestId });
 
     if (testResult) {
       const student = testResult.students.find(
@@ -964,6 +954,7 @@ router.get("/attempt-status/:testId", protect, async (req, res) => {
       if (student) {
         hasAttempted = true;
         attemptStatus = student.status || "in_progress";
+        solutions = student.solutions || []; // ✅ Get solutions from TestResult
         attemptData = {
           startTime: student.startTime,
           endTime: student.endTime,
@@ -984,6 +975,7 @@ router.get("/attempt-status/:testId", protect, async (req, res) => {
         if (testAttempt) {
           hasAttempted = true;
           attemptStatus = testAttempt.status || "in_progress";
+          solutions = testAttempt.solutions || []; // ✅ Get solutions from CodingTestAttempt
           attemptData = {
             startTime: testAttempt.startTime,
             endTime: testAttempt.endTime,
@@ -996,6 +988,9 @@ router.get("/attempt-status/:testId", protect, async (req, res) => {
       }
     }
 
+    // ✅ Log solutions count
+    console.log(`📊 Solutions found: ${solutions.length}`);
+
     res.json({
       success: true,
       hasAttempted: hasAttempted,
@@ -1006,7 +1001,7 @@ router.get("/attempt-status/:testId", protect, async (req, res) => {
           ? "You have already submitted this test"
           : "You have already started this test"
         : "You can start this test",
-      solutions: attemptData?.solutions || [],
+      solutions: solutions, // ✅ Return solutions at root level
       passedCount: attemptData?.totalSolved || 0,
       totalProblems: attemptData?.totalProblems || 0,
       percentage: attemptData?.percentage || 0,

@@ -90,6 +90,14 @@ const ProblemDetail = () => {
     }
   };
 
+  const refreshTestAttempt = async () => {
+    if (testId) {
+      console.log("🔄 ProblemDetail - Refreshing test attempt...");
+      // Dispatch a custom event that ProblemsList is listening to
+      window.dispatchEvent(new CustomEvent("refreshTestAttempt"));
+    }
+  };
+
   const checkSolvedStatus = () => {
     const solvedProblems = JSON.parse(
       localStorage.getItem("solvedProblems") || "[]",
@@ -290,6 +298,7 @@ const ProblemDetail = () => {
           problemId={problem.problemId}
           testId={testId}
           onSubmissionComplete={handleSubmissionComplete}
+          onRefreshTestAttempt={refreshTestAttempt}
         />
       </div>
     </div>

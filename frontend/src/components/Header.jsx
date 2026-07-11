@@ -38,21 +38,20 @@ const Header = () => {
   const navigate = useNavigate();
   const serverURL = import.meta.env.VITE_API_URL || "";
 
-  // ✅ Main app URL - where to redirect after test completion
+  // ✅ Main app URL
   const MAIN_APP_URL = "https://avainternlms.in";
-  // For local development:
-  // const MAIN_APP_URL = "http://localhost:5173";
 
   useEffect(() => {
     fetchProblems();
     checkSolvedProblems();
     checkAdminStatus();
 
-    // Check if in test mode
     const urlParams = new URLSearchParams(window.location.search);
     const urlTestId = urlParams.get("testId");
     const storedTestId = localStorage.getItem("currentTestId");
     const finalTestId = urlTestId || storedTestId;
+
+    console.log("🔍 Header - Final Test ID:", finalTestId);
 
     if (finalTestId) {
       setTestId(finalTestId);
@@ -61,7 +60,6 @@ const Header = () => {
       startTestTimer(finalTestId);
     }
 
-    // Handle scroll effect
     const handleScroll = () => {
       setIsScrolled(window.scrollY > 10);
     };
@@ -109,14 +107,13 @@ const Header = () => {
 
   // ✅ Redirect to Main App and Close Current Tab
   const redirectToMainAppAndClose = () => {
+    console.log("🔄 Header - Redirecting to main app...");
     try {
-      // ✅ Clear all test data from localStorage
       localStorage.removeItem("currentTestId");
       localStorage.removeItem("testId");
       localStorage.removeItem("testTitle");
       localStorage.removeItem("currentTestTitle");
 
-      // ✅ Send message to parent window (main app) that test is completed
       if (window.opener) {
         window.opener.postMessage(
           {
@@ -132,10 +129,7 @@ const Header = () => {
         console.log("📤 Sent TEST_COMPLETED message to parent window");
       }
 
-      // ✅ Redirect to main app in the current tab
       window.location.href = MAIN_APP_URL;
-
-      // ✅ Close the current tab after redirect
       setTimeout(() => {
         window.close();
       }, 500);
@@ -145,48 +139,97 @@ const Header = () => {
     }
   };
 
+  // ✅ Check test attempt - Fixed to properly get solutions
   const checkTestAttempt = async (testId) => {
+    console.log("🔍 Header - checkTestAttempt called");
     try {
       const token = localStorage.getItem("token");
-      const response = await fetch(
-        `${serverURL}/coding/attempt-status/${testId}`,
-        {
-          headers: {
-            Authorization: `Bearer ${token}`,
-          },
+      const url = `${serverURL}/coding/attempt-status/${testId}`;
+
+      const response = await fetch(url, {
+        headers: {
+          Authorization: `Bearer ${token}`,
         },
-      );
+      });
 
       const data = await response.json();
+
       if (data.success) {
-        setTestAttempt(data);
+        // ✅ Get solutions from ALL possible locations
+        let solutions = [];
+
+        // Check root level
+        if (data.solutions && Array.isArray(data.solutions)) {
+          solutions = data.solutions;
+        }
+        // Check inside attemptData
+        else if (
+          data.attemptData?.solutions &&
+          Array.isArray(data.attemptData.solutions)
+        ) {
+          solutions = data.attemptData.solutions;
+        }
+        // Check inside data
+        else if (data.data?.solutions && Array.isArray(data.data.solutions)) {
+          solutions = data.data.solutions;
+        }
+        // If solutions is an object with problem IDs, convert to array
+        else if (data.solutions && typeof data.solutions === "object") {
+          solutions = Object.values(data.solutions);
+        }
+
+        console.log("📊 Header - Solutions found:", solutions.length);
+
+        // ✅ Get other data
+        const passedCount =
+          data.passedCount || data.attemptData?.totalSolved || 0;
+        const totalProblems =
+          data.totalProblems || data.attemptData?.totalProblems || 0;
+        const percentage = data.percentage || data.attemptData?.percentage || 0;
+        const passed = data.passed || data.attemptData?.passed || false;
+
+        // ✅ Set testAttempt with all data
+        const attemptData = {
+          status: data.status || data.attemptStatus || "in_progress",
+          solutions: solutions,
+          passedCount: passedCount,
+          totalProblems: totalProblems,
+          percentage: percentage,
+          passed: passed,
+          hasAttempted: data.hasAttempted || false,
+        };
+
+        setTestAttempt(attemptData);
+
         if (data.status === "submitted" || data.status === "completed") {
           toast.error("You have already submitted this test!");
-          // Redirect and close after 1.5 seconds
           setTimeout(() => {
             redirectToMainAppAndClose();
           }, 1500);
         }
       }
     } catch (error) {
-      console.error("Error checking test attempt:", error);
+      console.error("❌ Header - Error checking test attempt:", error);
     }
   };
 
+  // ✅ Start test timer
   const startTestTimer = async (testId) => {
+    console.log("⏰ Header - startTestTimer called");
     try {
       const token = localStorage.getItem("token");
-      const response = await fetch(
-        `${serverURL}/coding/test-status/${testId}`,
-        {
-          headers: {
-            Authorization: `Bearer ${token}`,
-          },
+      const url = `${serverURL}/coding/test-status/${testId}`;
+
+      const response = await fetch(url, {
+        headers: {
+          Authorization: `Bearer ${token}`,
         },
-      );
+      });
 
       const data = await response.json();
+
       if (data.success && data.status === "active") {
+        console.log("✅ Header - Test is active, setting timer");
         setTimeRemaining(data.timeRemaining);
 
         const timer = setInterval(() => {
@@ -204,7 +247,7 @@ const Header = () => {
         setTestTimer(timer);
       }
     } catch (error) {
-      console.error("Error getting test status:", error);
+      console.error("❌ Header - Error getting test status:", error);
     }
   };
 
@@ -221,7 +264,7 @@ const Header = () => {
     return `${pad(minutes)}:${pad(seconds)}`;
   };
 
-  // ✅ Handle test submission (auto or manual)
+  // ✅ Handle test submission
   const handleSubmitTest = async (isAuto = false) => {
     if (submitting) return;
 
@@ -233,13 +276,11 @@ const Header = () => {
       return;
     }
 
-    // ✅ For auto-submit, allow even with 0 solutions
     if (isAuto) {
       await confirmSubmit(true);
       return;
     }
 
-    // ✅ Show confirmation modal for manual submission (always)
     setShowSubmitModal(true);
   };
 
@@ -269,7 +310,6 @@ const Header = () => {
         setShowSubmitModal(false);
         if (testTimer) clearInterval(testTimer);
 
-        // ✅ Redirect and close after 2 seconds
         setTimeout(() => {
           redirectToMainAppAndClose();
         }, 2000);
@@ -278,7 +318,7 @@ const Header = () => {
         setShowSubmitModal(false);
       }
     } catch (error) {
-      console.error("Error submitting test:", error);
+      console.error("❌ Header - Error submitting test:", error);
       toast.error("Failed to submit test");
       setShowSubmitModal(false);
     } finally {
@@ -367,7 +407,7 @@ const Header = () => {
             </div>
           </div>
 
-          {/* Center - Timer (only in test mode) */}
+          {/* Center - Timer */}
           {isTestMode && testAttempt?.status === "in_progress" && (
             <div className="hidden md:flex items-center gap-3 px-4 py-2 bg-gradient-to-r from-red-50 to-orange-50 rounded-xl border-2 border-red-300 shadow-lg shadow-red-100/50">
               <div className="relative">
@@ -382,11 +422,10 @@ const Header = () => {
                   {formatTime(timeRemaining)}
                 </span>
               </div>
-              <div className="h-8 w-px bg-red-200"></div>
             </div>
           )}
 
-          {/* Mobile Timer (smaller version) */}
+          {/* Mobile Timer */}
           {isTestMode && testAttempt?.status === "in_progress" && (
             <div className="md:hidden flex items-center gap-2 px-3 py-1.5 bg-red-50 rounded-lg border border-red-200">
               <Timer className="w-4 h-4 text-red-600 animate-pulse" />
@@ -398,7 +437,6 @@ const Header = () => {
 
           {/* Right - Actions */}
           <div className="flex items-center gap-2 flex-shrink-0">
-            {/* Stats - Desktop */}
             <div className="hidden lg:flex items-center gap-2 px-3 py-1.5 bg-gray-50 rounded-xl border border-gray-200">
               <div className="flex items-center gap-1">
                 <span className="w-2 h-2 bg-emerald-500 rounded-full"></span>
@@ -437,14 +475,15 @@ const Header = () => {
                 ) : (
                   <>
                     <Send className="w-4 h-4" />
-                    <span className="hidden sm:inline">Submit Test</span>
+                    <span className="hidden sm:inline">
+                      Submit Test ({testAttempt?.solutions?.length || 0})
+                    </span>
                     <span className="sm:hidden">Submit</span>
                   </>
                 )}
               </button>
             )}
 
-            {/* Show submitted status */}
             {isTestMode &&
               (testAttempt?.status === "submitted" ||
                 testAttempt?.status === "completed") && (
@@ -456,7 +495,6 @@ const Header = () => {
                 </div>
               )}
 
-            {/* Admin Button */}
             {isAdmin && authChecked && (
               <Link
                 to="/admin"
@@ -467,7 +505,6 @@ const Header = () => {
               </Link>
             )}
 
-            {/* Mobile Menu Toggle */}
             <button
               onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
               className="lg:hidden p-2 hover:bg-gray-100 rounded-lg transition-colors"
@@ -485,7 +522,6 @@ const Header = () => {
         {isMobileMenuOpen && (
           <div className="lg:hidden py-4 border-t border-gray-200 animate-slideDown">
             <div className="space-y-3">
-              {/* Mobile Stats */}
               <div className="flex items-center gap-3 px-3 py-2 bg-gray-50 rounded-xl">
                 <div className="flex items-center gap-1">
                   <span className="w-2 h-2 bg-emerald-500 rounded-full"></span>
@@ -513,7 +549,6 @@ const Header = () => {
                 </span>
               </div>
 
-              {/* Mobile Progress Bar */}
               <div className="w-full h-1.5 bg-gray-200 rounded-full overflow-hidden">
                 <div
                   className="h-full bg-gradient-to-r from-indigo-500 to-purple-500 rounded-full transition-all duration-500"
@@ -521,7 +556,6 @@ const Header = () => {
                 />
               </div>
 
-              {/* Mobile Admin Link */}
               {isAdmin && authChecked && (
                 <Link
                   to="/admin"

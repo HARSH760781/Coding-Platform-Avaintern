@@ -26,7 +26,12 @@ import {
 } from "../services/api";
 import toast from "react-hot-toast";
 
-const CodeEditor = ({ problemId, onSubmissionComplete, testId }) => {
+const CodeEditor = ({
+  problemId,
+  onSubmissionComplete,
+  testId,
+  onRefreshTestAttempt,
+}) => {
   const [code, setCode] = useState("");
   const [language, setLanguage] = useState("python");
   const [output, setOutput] = useState("");
@@ -371,6 +376,10 @@ const CodeEditor = ({ problemId, onSubmissionComplete, testId }) => {
           passed: hiddenResultsData.filter((tc) => tc.passed).length,
         });
 
+        if (onRefreshTestAttempt) {
+          await onRefreshTestAttempt();
+          console.log("✅ CodeEditor - Refreshed test attempt data");
+        }
         if (onSubmissionComplete) {
           onSubmissionComplete(data.status, data.score);
         }

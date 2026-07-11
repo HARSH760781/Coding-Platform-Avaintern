@@ -2,6 +2,7 @@
 import jwt from "jsonwebtoken";
 import User from "../models/User.js";
 
+// const BYPASS_AUTH = true;
 const BYPASS_AUTH = false;
 
 export const protect = async (req, res, next) => {

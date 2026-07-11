@@ -156,6 +156,21 @@ const ProblemsList = () => {
     };
   }, []);
 
+  useEffect(() => {
+    const handleTestRefresh = () => {
+      if (testId) {
+        console.log("🔄 ProblemsList - Test refresh event received!");
+        checkTestAttempt(testId);
+      }
+    };
+
+    window.addEventListener("refreshTestAttempt", handleTestRefresh);
+
+    return () => {
+      window.removeEventListener("refreshTestAttempt", handleTestRefresh);
+    };
+  }, [testId]);
+
   const fetchProblems = async () => {
     try {
       const response = await getProblems();
@@ -190,6 +205,13 @@ const ProblemsList = () => {
     }
   };
 
+  const refreshTestAttempt = async () => {
+    if (testId) {
+      console.log("🔄 ProblemsList - Refreshing test attempt...");
+      await checkTestAttempt(testId);
+    }
+  };
+
   const clearTestSolvedProblems = () => {
     if (testId) {
       localStorage.removeItem(`solvedProblems_${testId}`);
@@ -203,7 +225,7 @@ const ProblemsList = () => {
     try {
       const token = localStorage.getItem("token");
       const response = await fetch(
-        `${serverURL}/api/coding-tests/check-attempt/${testId}`,
+        `${serverURL}/coding-tests/check-attempt/${testId}`,
         {
           headers: {
             Authorization: `Bearer ${token}`,
