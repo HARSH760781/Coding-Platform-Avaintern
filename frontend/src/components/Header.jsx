@@ -38,6 +38,11 @@ const Header = () => {
   const navigate = useNavigate();
   const serverURL = import.meta.env.VITE_API_URL || "";
 
+  // ✅ Main app URL - where to redirect after test completion
+  const MAIN_APP_URL = "https://avainternlms.in";
+  // For local development:
+  // const MAIN_APP_URL = "http://localhost:5173";
+
   useEffect(() => {
     fetchProblems();
     checkSolvedProblems();
@@ -102,6 +107,44 @@ const Header = () => {
     }
   };
 
+  // ✅ Redirect to Main App and Close Current Tab
+  const redirectToMainAppAndClose = () => {
+    try {
+      // ✅ Clear all test data from localStorage
+      localStorage.removeItem("currentTestId");
+      localStorage.removeItem("testId");
+      localStorage.removeItem("testTitle");
+      localStorage.removeItem("currentTestTitle");
+
+      // ✅ Send message to parent window (main app) that test is completed
+      if (window.opener) {
+        window.opener.postMessage(
+          {
+            type: "TEST_COMPLETED",
+            data: {
+              testId: testId,
+              status: "completed",
+              timestamp: new Date().toISOString(),
+            },
+          },
+          MAIN_APP_URL,
+        );
+        console.log("📤 Sent TEST_COMPLETED message to parent window");
+      }
+
+      // ✅ Redirect to main app in the current tab
+      window.location.href = MAIN_APP_URL;
+
+      // ✅ Close the current tab after redirect
+      setTimeout(() => {
+        window.close();
+      }, 500);
+    } catch (error) {
+      console.error("❌ Error redirecting:", error);
+      navigate("/problems");
+    }
+  };
+
   const checkTestAttempt = async (testId) => {
     try {
       const token = localStorage.getItem("token");
@@ -119,6 +162,10 @@ const Header = () => {
         setTestAttempt(data);
         if (data.status === "submitted" || data.status === "completed") {
           toast.error("You have already submitted this test!");
+          // Redirect and close after 1.5 seconds
+          setTimeout(() => {
+            redirectToMainAppAndClose();
+          }, 1500);
         }
       }
     } catch (error) {
@@ -174,23 +221,34 @@ const Header = () => {
     return `${pad(minutes)}:${pad(seconds)}`;
   };
 
+  // ✅ Handle test submission (auto or manual)
   const handleSubmitTest = async (isAuto = false) => {
     if (submitting) return;
-    if (!testAttempt || testAttempt.solutions?.length === 0) {
-      if (!isAuto) toast.error("You haven't attempted any problems yet!");
+
+    if (
+      testAttempt?.status === "submitted" ||
+      testAttempt?.status === "completed"
+    ) {
+      toast.info("Test has already been submitted");
       return;
     }
+
+    // ✅ For auto-submit, allow even with 0 solutions
     if (isAuto) {
       await confirmSubmit(true);
-    } else {
-      setShowSubmitModal(true);
+      return;
     }
+
+    // ✅ Show confirmation modal for manual submission (always)
+    setShowSubmitModal(true);
   };
 
+  // ✅ Confirm submission
   const confirmSubmit = async (isAuto = false) => {
     try {
       setSubmitting(true);
       const token = localStorage.getItem("token");
+
       const response = await fetch(`${serverURL}/coding/submit-test`, {
         method: "POST",
         headers: {
@@ -201,28 +259,28 @@ const Header = () => {
       });
 
       const data = await response.json();
+
       if (data.success) {
         toast.success(
           isAuto
-            ? "⏰ Test auto-submitted successfully!"
-            : "✅ Test submitted successfully!",
+            ? "⏰ Test auto-submitted successfully! Closing..."
+            : "✅ Test submitted successfully! Closing...",
         );
         setShowSubmitModal(false);
         if (testTimer) clearInterval(testTimer);
-        navigate("/test-completed", {
-          state: {
-            percentage: data.test.percentage,
-            passed: data.test.passed,
-            passedCount: data.test.passedCount,
-            totalProblems: data.test.totalProblems,
-          },
-        });
+
+        // ✅ Redirect and close after 2 seconds
+        setTimeout(() => {
+          redirectToMainAppAndClose();
+        }, 2000);
       } else {
         toast.error(data.error || "Failed to submit test");
+        setShowSubmitModal(false);
       }
     } catch (error) {
       console.error("Error submitting test:", error);
       toast.error("Failed to submit test");
+      setShowSubmitModal(false);
     } finally {
       setSubmitting(false);
     }
@@ -364,16 +422,12 @@ const Header = () => {
               </div>
             </div>
 
-            {/* ✅ SUBMIT TEST BUTTON */}
+            {/* ✅ SUBMIT TEST BUTTON - Always Enabled */}
             {isTestMode && testAttempt?.status === "in_progress" && (
               <button
                 onClick={() => handleSubmitTest(false)}
-                disabled={submitting || testAttempt?.solutions?.length === 0}
-                className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all duration-300 ${
-                  testAttempt?.solutions?.length === 0
-                    ? "bg-gray-100 text-gray-400 cursor-not-allowed"
-                    : "bg-gradient-to-r from-emerald-600 to-green-600 text-white hover:shadow-lg hover:shadow-emerald-500/30 hover:scale-105 active:scale-95"
-                }`}
+                disabled={submitting}
+                className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all duration-300 bg-gradient-to-r from-emerald-600 to-green-600 text-white hover:shadow-lg hover:shadow-emerald-500/30 hover:scale-105 active:scale-95"
               >
                 {submitting ? (
                   <>
@@ -541,7 +595,7 @@ const Header = () => {
                   <span className="text-lg">⚠️</span>
                   <span>
                     Once submitted, you cannot make any more changes to your
-                    test.
+                    test. This tab will close automatically.
                   </span>
                 </p>
               </div>
@@ -571,7 +625,7 @@ const Header = () => {
                 ) : (
                   <>
                     <Send className="w-4 h-4" />
-                    Submit Test
+                    Submit & Close
                   </>
                 )}
               </button>
