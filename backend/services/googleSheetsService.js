@@ -168,14 +168,12 @@ class GoogleSheetsService {
 
       // Validate and format
       const formatted = testCases.map((tc) => ({
-        input: String(tc.input || tc.stdin || tc.input_data || ""),
-        expectedOutput: String(
-          tc.expectedOutput ||
-            tc.expected ||
-            tc.output ||
-            tc.expected_output ||
-            "",
-        ),
+        input:
+          tc.input !== undefined && tc.input !== null ? String(tc.input) : "", // ✅ Allow empty strings
+        expectedOutput:
+          tc.expectedOutput !== undefined && tc.expectedOutput !== null
+            ? String(tc.expectedOutput)
+            : "", // ✅ Allow empty strings
         isHidden:
           tc.isHidden === true ||
           tc.isHidden === "true" ||
@@ -250,14 +248,12 @@ class GoogleSheetsService {
       const testCases = JSON.parse(fixed);
 
       const formatted = testCases.map((tc) => ({
-        input: String(tc.input || tc.stdin || tc.input_data || ""),
-        expectedOutput: String(
-          tc.expectedOutput ||
-            tc.expected ||
-            tc.output ||
-            tc.expected_output ||
-            "",
-        ),
+        input:
+          tc.input !== undefined && tc.input !== null ? String(tc.input) : "", // ✅ Allow empty strings
+        expectedOutput:
+          tc.expectedOutput !== undefined && tc.expectedOutput !== null
+            ? String(tc.expectedOutput)
+            : "", // ✅ Allow empty strings
         isHidden:
           tc.isHidden === true ||
           tc.isHidden === "true" ||
@@ -267,7 +263,6 @@ class GoogleSheetsService {
           tc.hidden === "TRUE",
         weightage: tc.weightage || tc.weight || 1,
       }));
-
       console.log(`✅ Fallback Parser: Parsed ${formatted.length} test cases`);
       return formatted;
     } catch (error) {

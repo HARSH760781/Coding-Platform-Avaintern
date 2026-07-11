@@ -2,8 +2,8 @@
 import mongoose from "mongoose";
 
 const testCaseSchema = new mongoose.Schema({
-  input: { type: String, required: true },
-  expectedOutput: { type: String, required: true },
+  input: { type: String, required: false },
+  expectedOutput: { type: String, required: false },
   isHidden: { type: Boolean, default: false },
   explanation: { type: String },
   weightage: { type: Number, default: 1 },
