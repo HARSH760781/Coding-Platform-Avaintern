@@ -1093,8 +1093,10 @@ router.post("/submit-test", protect, async (req, res) => {
     const userId = req.userId;
 
     console.log(`📤 Submitting test: ${testId} for user: ${userId}`);
+    console.log(`📤 testId type: ${typeof testId}`);
+    console.log(`📤 userId type: ${typeof userId}`);
 
-    // ✅ Try to find by _id first
+    // ✅ Find the coding test
     let codingTest = null;
 
     if (mongoose.Types.ObjectId.isValid(testId)) {
@@ -1124,33 +1126,105 @@ router.post("/submit-test", protect, async (req, res) => {
     }
 
     console.log(`✅ Found CodingTest: ${codingTest.title}`);
+    console.log(`📝 MongoDB _id: ${codingTest._id}`);
+    console.log(`📝 String testId: ${codingTest.testId}`);
 
     const stringTestId = codingTest.testId;
+    const mongoId = codingTest._id.toString();
 
     // Find user attempt
+    console.log(`🔍 Looking for user attempt with userId: ${userId}`);
     let userAttempt = await CodingTestAttempt.findOne({ userId: userId });
+
     if (!userAttempt) {
+      console.log(`❌ No user attempt found for userId: ${userId}`);
       return res.status(404).json({
         success: false,
-        error: "No test attempt found",
+        error: "No test attempt found. Please start the test first.",
       });
     }
 
-    // Find the test in user's attempts using the string testId
-    const testIndex = userAttempt.tests.findIndex(
-      (t) => t.testId === stringTestId,
+    console.log(`📊 User attempts found: ${userAttempt.tests.length}`);
+
+    // ✅ Log all testIds in the user's attempts
+    console.log("📊 All testIds in user attempts:");
+    userAttempt.tests.forEach((t, index) => {
+      console.log(
+        `  [${index}] testId: ${t.testId} (type: ${typeof t.testId})`,
+      );
+      console.log(
+        `      status: ${t.status}, solutions: ${t.solutions.length}`,
+      );
+    });
+
+    // ✅ Try MULTIPLE ways to find the test
+    let testIndex = -1;
+
+    // 1. Try by string testId (TEST_xxx)
+    testIndex = userAttempt.tests.findIndex((t) => t.testId === stringTestId);
+    console.log(
+      `🔍 1. By string testId (${stringTestId}): ${testIndex !== -1 ? "✅ Found" : "❌ Not found"}`,
     );
 
+    // 2. Try by MongoDB _id
     if (testIndex === -1) {
+      testIndex = userAttempt.tests.findIndex((t) => t.testId === mongoId);
+      console.log(
+        `🔍 2. By MongoDB _id (${mongoId}): ${testIndex !== -1 ? "✅ Found" : "❌ Not found"}`,
+      );
+    }
+
+    // 3. Try by the original testId passed in
+    if (testIndex === -1) {
+      testIndex = userAttempt.tests.findIndex((t) => t.testId === testId);
+      console.log(
+        `🔍 3. By original testId (${testId}): ${testIndex !== -1 ? "✅ Found" : "❌ Not found"}`,
+      );
+    }
+
+    // 4. Try by converting the testId to string
+    if (testIndex === -1) {
+      testIndex = userAttempt.tests.findIndex(
+        (t) => t.testId === String(testId),
+      );
+      console.log(
+        `🔍 4. By String(testId) (${String(testId)}): ${testIndex !== -1 ? "✅ Found" : "❌ Not found"}`,
+      );
+    }
+
+    // 5. Try by ObjectId comparison
+    if (testIndex === -1) {
+      for (let i = 0; i < userAttempt.tests.length; i++) {
+        const t = userAttempt.tests[i];
+        if (t.testId && t.testId.toString && t.testId.toString() === mongoId) {
+          testIndex = i;
+          console.log(`✅ 5. Found by ObjectId comparison: ${mongoId}`);
+          break;
+        }
+      }
+    }
+
+    if (testIndex === -1) {
+      console.log("❌ Test not found in user attempts!");
       return res.status(404).json({
         success: false,
-        error: "Test attempt not found",
+        error: "Test attempt not found. Please start the test first.",
+        availableTests: userAttempt.tests.map((t) => ({
+          testId: t.testId,
+          type: typeof t.testId,
+        })),
       });
     }
 
     const test = userAttempt.tests[testIndex];
+    console.log(`✅ Found test at index ${testIndex}:`, {
+      testId: test.testId,
+      status: test.status,
+      solutions: test.solutions.length,
+      passedCount: test.passedCount,
+    });
 
-    if (test.status === "submitted" || test.status === "completed") {
+    if (test.status === "submitted") {
       return res.status(400).json({
         success: false,
         error: "Test already submitted",
@@ -1175,6 +1249,11 @@ router.post("/submit-test", protect, async (req, res) => {
 
     await userAttempt.save();
 
+    console.log(`✅ Test submitted: ${stringTestId}`);
+    console.log(
+      `📊 Passed: ${test.passedCount}/${test.totalProblems} (${test.percentage}%)`,
+    );
+
     // Update TestResult
     const testResult = await TestResult.findOne({ testId: stringTestId });
     if (testResult) {
@@ -1192,7 +1271,6 @@ router.post("/submit-test", protect, async (req, res) => {
         student.passed = test.passed;
         student.submittedAt = new Date();
 
-        // Recalculate stats
         const students = testResult.students;
         const totalStudents = students.length;
         const passedStudents = students.filter((s) => s.passed).length;

@@ -51,7 +51,7 @@ const Header = () => {
     const storedTestId = localStorage.getItem("currentTestId");
     const finalTestId = urlTestId || storedTestId;
 
-    console.log("🔍 Header - Final Test ID:", finalTestId);
+    // console.log("🔍 Header - Final Test ID:", finalTestId);
 
     if (finalTestId) {
       setTestId(finalTestId);
@@ -107,7 +107,7 @@ const Header = () => {
 
   // ✅ Redirect to Main App and Close Current Tab
   const redirectToMainAppAndClose = () => {
-    console.log("🔄 Header - Redirecting to main app...");
+    // console.log("🔄 Header - Redirecting to main app...");
     try {
       localStorage.removeItem("currentTestId");
       localStorage.removeItem("testId");
@@ -126,7 +126,7 @@ const Header = () => {
           },
           MAIN_APP_URL,
         );
-        console.log("📤 Sent TEST_COMPLETED message to parent window");
+        // console.log("📤 Sent TEST_COMPLETED message to parent window");
       }
 
       window.location.href = MAIN_APP_URL;
@@ -141,7 +141,7 @@ const Header = () => {
 
   // ✅ Check test attempt - Fixed to properly get solutions
   const checkTestAttempt = async (testId) => {
-    console.log("🔍 Header - checkTestAttempt called");
+    // console.log("🔍 Header - checkTestAttempt called");
     try {
       const token = localStorage.getItem("token");
       const url = `${serverURL}/coding/attempt-status/${testId}`;
@@ -178,7 +178,7 @@ const Header = () => {
           solutions = Object.values(data.solutions);
         }
 
-        console.log("📊 Header - Solutions found:", solutions.length);
+        // console.log("📊 Header - Solutions found:", solutions.length);
 
         // ✅ Get other data
         const passedCount =
@@ -229,7 +229,7 @@ const Header = () => {
       const data = await response.json();
 
       if (data.success && data.status === "active") {
-        console.log("✅ Header - Test is active, setting timer");
+        // console.log("✅ Header - Test is active, setting timer");
         setTimeRemaining(data.timeRemaining);
 
         const timer = setInterval(() => {
@@ -286,20 +286,44 @@ const Header = () => {
 
   // ✅ Confirm submission
   const confirmSubmit = async (isAuto = false) => {
+    // console.log("🔴🔴🔴 Header - confirmSubmit CALLED! 🔴🔴🔴");
+    // console.log("📤 Header - confirmSubmit called, isAuto:", isAuto);
+    // console.log("📤 Header - testId:", testId);
+    // console.log("📤 Header - submitting:", submitting);
+
+    if (!testId) {
+      console.error("❌ Header - No testId available!");
+      toast.error("No test ID found. Please try again.");
+      return;
+    }
+
     try {
       setSubmitting(true);
       const token = localStorage.getItem("token");
+      // console.log("📤 Header - Token present:", !!token);
 
-      const response = await fetch(`${serverURL}/coding/submit-test`, {
+      const url = `${serverURL}/coding/submit-test`;
+      const body = { testId };
+
+      // console.log("🔍 Header - Submitting to URL:", url);
+      // console.log("📤 Header - Request body:", body);
+
+      const response = await fetch(url, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
           Authorization: `Bearer ${token}`,
         },
-        body: JSON.stringify({ testId }),
+        body: JSON.stringify(body),
       });
 
+      // console.log("📡 Header - Submit response status:", response.status);
+
       const data = await response.json();
+      // console.log(
+      //   "📤 Header - Submit response:",
+      //   JSON.stringify(data, null, 2),
+      // );
 
       if (data.success) {
         toast.success(
@@ -310,10 +334,14 @@ const Header = () => {
         setShowSubmitModal(false);
         if (testTimer) clearInterval(testTimer);
 
+        // ✅ Dispatch refresh event before closing
+        window.dispatchEvent(new CustomEvent("refreshTestAttempt"));
+
         setTimeout(() => {
           redirectToMainAppAndClose();
         }, 2000);
       } else {
+        console.log("❌ Header - Submit failed:", data.error);
         toast.error(data.error || "Failed to submit test");
         setShowSubmitModal(false);
       }
@@ -475,9 +503,7 @@ const Header = () => {
                 ) : (
                   <>
                     <Send className="w-4 h-4" />
-                    <span className="hidden sm:inline">
-                      Submit Test ({testAttempt?.solutions?.length || 0})
-                    </span>
+                    <span className="hidden sm:inline">Submit Test</span>
                     <span className="sm:hidden">Submit</span>
                   </>
                 )}

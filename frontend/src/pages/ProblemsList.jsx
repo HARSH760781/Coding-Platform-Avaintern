@@ -225,7 +225,7 @@ const ProblemsList = () => {
     try {
       const token = localStorage.getItem("token");
       const response = await fetch(
-        `${serverURL}/coding-tests/check-attempt/${testId}`,
+        `${serverURL}/coding/check-attempt/${testId}`,
         {
           headers: {
             Authorization: `Bearer ${token}`,
