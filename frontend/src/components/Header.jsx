@@ -325,15 +325,6 @@ const Header = () => {
                 </span>
               </div>
               <div className="h-8 w-px bg-red-200"></div>
-              <div className="flex flex-col items-center">
-                <span className="text-[8px] text-red-500 font-medium uppercase tracking-wider">
-                  Progress
-                </span>
-                <span className="text-red-700 font-bold text-sm">
-                  {testAttempt?.solutions?.length || 0}/
-                  {testAttempt?.totalProblems || 0}
-                </span>
-              </div>
             </div>
           )}
 
