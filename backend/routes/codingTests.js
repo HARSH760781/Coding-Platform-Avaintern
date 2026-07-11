@@ -902,4 +902,342 @@ router.get("/submissions/:userId", async (req, res) => {
   }
 });
 
+// ============================================
+// ✅ CHECK ATTEMPT STATUS
+// ============================================
+router.get("/attempt-status/:testId", protect, async (req, res) => {
+  try {
+    const { testId } = req.params;
+    const userId = req.userId;
+
+    console.log(`🔍 Checking attempt for user ${userId} on test ${testId}`);
+    console.log(`🔍 Type of testId: ${typeof testId}`);
+
+    // ✅ Try to find by _id first (MongoDB ObjectId)
+    let codingTest = null;
+
+    // Check if testId is a valid ObjectId
+    if (mongoose.Types.ObjectId.isValid(testId)) {
+      codingTest = await CodingTest.findById(testId);
+      console.log(`🔍 Searching by _id: ${codingTest ? "Found" : "Not found"}`);
+    }
+
+    // If not found by _id, try by testId string
+    if (!codingTest) {
+      codingTest = await CodingTest.findOne({ testId: testId });
+      console.log(
+        `🔍 Searching by testId string: ${codingTest ? "Found" : "Not found"}`,
+      );
+    }
+
+    // If still not found, try by testId field with different format
+    if (!codingTest) {
+      codingTest = await CodingTest.findOne({ testId: `TEST_${testId}` });
+      console.log(
+        `🔍 Searching by TEST_ prefix: ${codingTest ? "Found" : "Not found"}`,
+      );
+    }
+
+    if (!codingTest) {
+      return res.status(404).json({
+        success: false,
+        message: "Test not found",
+      });
+    }
+
+    console.log(`✅ Found CodingTest: ${codingTest.title}`);
+    console.log(`📝 String testId: ${codingTest.testId}`);
+
+    const stringTestId = codingTest.testId;
+
+    // Check in TestResult
+    const testResult = await TestResult.findOne({ testId: stringTestId });
+    let hasAttempted = false;
+    let attemptStatus = null;
+    let attemptData = null;
+
+    if (testResult) {
+      const student = testResult.students.find(
+        (s) => s.userId.toString() === userId.toString(),
+      );
+
+      if (student) {
+        hasAttempted = true;
+        attemptStatus = student.status || "in_progress";
+        attemptData = {
+          startTime: student.startTime,
+          endTime: student.endTime,
+          totalSolved: student.totalSolved || 0,
+          totalProblems: student.totalProblems || 0,
+          percentage: student.percentage || 0,
+          passed: student.passed || false,
+        };
+      }
+    }
+
+    // Also check in CodingTestAttempt
+    if (!hasAttempted) {
+      const userAttempt = await CodingTestAttempt.findOne({ userId: userId });
+
+      if (userAttempt) {
+        const testAttempt = userAttempt.tests.find((t) => t.testId === testId);
+        if (testAttempt) {
+          hasAttempted = true;
+          attemptStatus = testAttempt.status || "in_progress";
+          attemptData = {
+            startTime: testAttempt.startTime,
+            endTime: testAttempt.endTime,
+            totalSolved: testAttempt.passedCount || 0,
+            totalProblems: testAttempt.totalProblems || 0,
+            percentage: testAttempt.percentage || 0,
+            passed: testAttempt.passed || false,
+          };
+        }
+      }
+    }
+
+    res.json({
+      success: true,
+      hasAttempted: hasAttempted,
+      status: attemptStatus,
+      canAttempt: !hasAttempted || attemptStatus !== "submitted",
+      message: hasAttempted
+        ? attemptStatus === "submitted"
+          ? "You have already submitted this test"
+          : "You have already started this test"
+        : "You can start this test",
+      solutions: attemptData?.solutions || [],
+      passedCount: attemptData?.totalSolved || 0,
+      totalProblems: attemptData?.totalProblems || 0,
+      percentage: attemptData?.percentage || 0,
+      passed: attemptData?.passed || false,
+    });
+  } catch (error) {
+    console.error("❌ Error checking attempt:", error);
+    res.status(500).json({
+      success: false,
+      message: error.message || "Failed to check attempt",
+    });
+  }
+});
+
+// ============================================
+// ✅ GET TEST STATUS (with timer)
+// ============================================
+router.get("/test-status/:testId", protect, async (req, res) => {
+  try {
+    const { testId } = req.params;
+
+    console.log(`🔍 Looking for test status with ID: ${testId}`);
+
+    // ✅ Try to find by _id first
+    let codingTest = null;
+
+    if (mongoose.Types.ObjectId.isValid(testId)) {
+      codingTest = await CodingTest.findById(testId);
+      console.log(`🔍 Searching by _id: ${codingTest ? "Found" : "Not found"}`);
+    }
+
+    if (!codingTest) {
+      codingTest = await CodingTest.findOne({ testId: testId });
+      console.log(
+        `🔍 Searching by testId string: ${codingTest ? "Found" : "Not found"}`,
+      );
+    }
+
+    if (!codingTest) {
+      codingTest = await CodingTest.findOne({ testId: `TEST_${testId}` });
+      console.log(
+        `🔍 Searching by TEST_ prefix: ${codingTest ? "Found" : "Not found"}`,
+      );
+    }
+
+    if (!codingTest) {
+      return res.status(404).json({
+        success: false,
+        error: "Test not found",
+      });
+    }
+
+    console.log(`✅ Found CodingTest: ${codingTest.title}`);
+
+    const now = new Date();
+    const startTime = new Date(codingTest.startTime);
+    const endTime = new Date(codingTest.endTime);
+
+    let status = "upcoming";
+    if (now >= startTime && now <= endTime) {
+      status = "active";
+    } else if (now > endTime) {
+      status = "ended";
+    }
+
+    res.json({
+      success: true,
+      status: status,
+      startTime: codingTest.startTime,
+      endTime: codingTest.endTime,
+      timeRemaining: status === "active" ? endTime - now : 0,
+      duration: codingTest.duration * 60 * 1000,
+    });
+  } catch (error) {
+    console.error("❌ Error getting test status:", error);
+    res.status(500).json({
+      success: false,
+      error: error.message || "Failed to get test status",
+    });
+  }
+});
+
+// ============================================
+// ✅ SUBMIT COMPLETE TEST
+// ============================================
+router.post("/submit-test", protect, async (req, res) => {
+  try {
+    const { testId } = req.body;
+    const userId = req.userId;
+
+    console.log(`📤 Submitting test: ${testId} for user: ${userId}`);
+
+    // ✅ Try to find by _id first
+    let codingTest = null;
+
+    if (mongoose.Types.ObjectId.isValid(testId)) {
+      codingTest = await CodingTest.findById(testId);
+      console.log(`🔍 Searching by _id: ${codingTest ? "Found" : "Not found"}`);
+    }
+
+    if (!codingTest) {
+      codingTest = await CodingTest.findOne({ testId: testId });
+      console.log(
+        `🔍 Searching by testId string: ${codingTest ? "Found" : "Not found"}`,
+      );
+    }
+
+    if (!codingTest) {
+      codingTest = await CodingTest.findOne({ testId: `TEST_${testId}` });
+      console.log(
+        `🔍 Searching by TEST_ prefix: ${codingTest ? "Found" : "Not found"}`,
+      );
+    }
+
+    if (!codingTest) {
+      return res.status(404).json({
+        success: false,
+        error: "Test not found",
+      });
+    }
+
+    console.log(`✅ Found CodingTest: ${codingTest.title}`);
+
+    const stringTestId = codingTest.testId;
+
+    // Find user attempt
+    let userAttempt = await CodingTestAttempt.findOne({ userId: userId });
+    if (!userAttempt) {
+      return res.status(404).json({
+        success: false,
+        error: "No test attempt found",
+      });
+    }
+
+    // Find the test in user's attempts using the string testId
+    const testIndex = userAttempt.tests.findIndex(
+      (t) => t.testId === stringTestId,
+    );
+
+    if (testIndex === -1) {
+      return res.status(404).json({
+        success: false,
+        error: "Test attempt not found",
+      });
+    }
+
+    const test = userAttempt.tests[testIndex];
+
+    if (test.status === "submitted" || test.status === "completed") {
+      return res.status(400).json({
+        success: false,
+        error: "Test already submitted",
+      });
+    }
+
+    // Update status
+    test.status = "submitted";
+    test.endTime = new Date();
+    test.submittedAt = new Date();
+
+    const acceptedSolutions = test.solutions.filter(
+      (s) => s.status === "accepted",
+    );
+    test.passedCount = acceptedSolutions.length;
+    test.totalProblems = test.solutions.length;
+    test.percentage =
+      test.totalProblems > 0
+        ? (acceptedSolutions.length / test.totalProblems) * 100
+        : 0;
+    test.passed = test.percentage >= (codingTest.passingPercentage || 40);
+
+    await userAttempt.save();
+
+    // Update TestResult
+    const testResult = await TestResult.findOne({ testId: stringTestId });
+    if (testResult) {
+      const studentIndex = testResult.students.findIndex(
+        (s) => s.userId.toString() === userId.toString(),
+      );
+
+      if (studentIndex !== -1) {
+        const student = testResult.students[studentIndex];
+        student.status = "submitted";
+        student.endTime = new Date();
+        student.totalSolved = test.passedCount;
+        student.totalProblems = test.totalProblems;
+        student.percentage = test.percentage;
+        student.passed = test.passed;
+        student.submittedAt = new Date();
+
+        // Recalculate stats
+        const students = testResult.students;
+        const totalStudents = students.length;
+        const passedStudents = students.filter((s) => s.passed).length;
+        const averageScore =
+          totalStudents > 0
+            ? students.reduce((sum, s) => sum + s.percentage, 0) / totalStudents
+            : 0;
+
+        testResult.stats = {
+          totalStudents: totalStudents,
+          passedStudents: passedStudents,
+          failedStudents: totalStudents - passedStudents,
+          averageScore: parseFloat(averageScore.toFixed(2)),
+          passRate:
+            totalStudents > 0 ? (passedStudents / totalStudents) * 100 : 0,
+        };
+
+        await testResult.save();
+      }
+    }
+
+    res.json({
+      success: true,
+      message: "Test submitted successfully",
+      test: {
+        status: test.status,
+        percentage: test.percentage,
+        passed: test.passed,
+        passedCount: test.passedCount,
+        totalProblems: test.totalProblems,
+        submittedAt: test.submittedAt,
+      },
+    });
+  } catch (error) {
+    console.error("❌ Error submitting test:", error);
+    res.status(500).json({
+      success: false,
+      error: error.message || "Failed to submit test",
+    });
+  }
+});
+
 export default router;

@@ -1,3 +1,5 @@
+// frontend/src/App.jsx
+
 import React, { useState, useEffect } from "react";
 import {
   BrowserRouter as Router,
@@ -9,6 +11,17 @@ import { Toaster } from "react-hot-toast";
 import ProblemsList from "./pages/ProblemsList";
 import AdminPanel from "./pages/AdminPanel";
 import ProblemDetail from "./pages/ProblemDetail";
+import Header from "./components/Header"; // ✅ Import Header
+
+// ✅ Layout Component
+const Layout = ({ children }) => {
+  return (
+    <div className="min-h-screen bg-gray-50">
+      <Header />
+      <main>{children}</main>
+    </div>
+  );
+};
 
 function App() {
   const [isAdmin, setIsAdmin] = useState(false);
@@ -22,7 +35,6 @@ function App() {
 
       if (token && role) {
         setIsAdmin(role === "admin");
-        // console.log("📋 Existing auth found:", { role, hasToken: !!token });
       }
       setIsLoading(false);
     };
@@ -31,10 +43,10 @@ function App() {
     const handleMessage = (event) => {
       // 🔒 Security: Verify the sender origin
       const allowedOrigins = [
-        "https://avainternlms.in", // Your main app URL
-        "http://localhost:5173", // Local development
-        "http://localhost:3000", // Local development alternative
-        "https://coding-platform-avaintern.onrender.com", // If same domain
+        "https://avainternlms.in",
+        "http://localhost:5173",
+        "http://localhost:3000",
+        "https://coding-platform-avaintern.onrender.com",
       ];
 
       if (!allowedOrigins.includes(event.origin)) {
@@ -42,20 +54,10 @@ function App() {
         return;
       }
 
-      // Check if it's our auth message
       if (event.data?.type === "USER_AUTH_DATA") {
         const { token, role, userId, email, testId, testTitle } =
           event.data.data;
 
-        // console.log("📥 Received auth data:", {
-        //   hasToken: !!token,
-        //   role: role,
-        //   userId: userId,
-        //   testId: testId,
-        //   testTitle: testTitle,
-        // });
-
-        // ✅ Store in localStorage
         if (token) localStorage.setItem("token", token);
         if (role) {
           localStorage.setItem("role", role);
@@ -71,32 +73,17 @@ function App() {
           localStorage.setItem("testTitle", testTitle);
           localStorage.setItem("currentTestTitle", testTitle);
         }
-
-        // 🎯 Optionally, you can trigger a re-render or fetch data
-        // console.log("✅ Auth data synchronized successfully!");
-
-        // If user is admin, they can access admin panel
-        // if (role === "admin") {
-        //   // console.log("👑 Admin access granted!");
-        // } else {
-        //   console.log("👤 User access granted!");
-        // }
       }
     };
 
-    // Check existing auth first
     checkExistingAuth();
-
-    // Add message listener
     window.addEventListener("message", handleMessage);
 
-    // 🧹 Cleanup
     return () => {
       window.removeEventListener("message", handleMessage);
     };
   }, []);
 
-  // Show loading state while checking auth
   if (isLoading) {
     return (
       <div className="flex items-center justify-center min-h-screen bg-gray-50">
@@ -107,6 +94,7 @@ function App() {
       </div>
     );
   }
+
   return (
     <Router>
       <Toaster
@@ -133,10 +121,41 @@ function App() {
         }}
       />
       <Routes>
-        <Route path="/" element={<Navigate to="/problems" />} />
-        <Route path="/problems" element={<ProblemsList />} />
-        <Route path="/problem/:problemId" element={<ProblemDetail />} />
-        {isAdmin && <Route path="/admin" element={<AdminPanel />} />}
+        {/* ✅ Routes WITH Header */}
+        <Route
+          path="/"
+          element={
+            <Layout>
+              <Navigate to="/problems" />
+            </Layout>
+          }
+        />
+        <Route
+          path="/problems"
+          element={
+            <Layout>
+              <ProblemsList />
+            </Layout>
+          }
+        />
+        <Route
+          path="/problem/:problemId"
+          element={
+            <Layout>
+              <ProblemDetail />
+            </Layout>
+          }
+        />
+        {isAdmin && (
+          <Route
+            path="/admin"
+            element={
+              <Layout>
+                <AdminPanel />
+              </Layout>
+            }
+          />
+        )}
       </Routes>
     </Router>
   );
