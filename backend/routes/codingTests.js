@@ -3,6 +3,8 @@ import express from "express";
 import Problem from "../models/Problem.js";
 import mongoose from "mongoose";
 import CodingTestAttempt from "../models/Submission.js";
+import TestResult from "../models/TestResult.js";
+import CodingTest from "../models/CodingTest.js";
 import TestAttempt from "../models/TestAttempt.js";
 import judge0Service from "../services/judge0Service.js";
 import { protect } from "../middleware/auth.js";
@@ -374,6 +376,177 @@ router.post("/submit", protect, async (req, res) => {
       console.log(
         `📊 User: ${userAttempt.totalProblemsSolved} problems solved`,
       );
+
+      // ============================================
+      // ✅ STEP 13: ALSO SAVE TO TESTRESULT
+      // ============================================
+      if (enumStatus === "accepted") {
+        console.log(`📊 Updating TestResult for test: ${testId}`, userId);
+        try {
+          // ✅ Step 1: Find the CodingTest document using the MongoDB _id
+          const codingTest = await CodingTest.findById(testId);
+
+          if (!codingTest) {
+            console.log(`❌ CodingTest not found with _id: ${testId}`);
+          } else {
+            console.log("✅ Found CodingTest:", codingTest.title);
+            console.log("📝 String testId:", codingTest.testId);
+            console.log("📝 MongoDB _id:", codingTest._id);
+
+            // ✅ Step 2: Use the string testId to find/update TestResult
+            const stringTestId = codingTest.testId; // "TEST_1783766498906"
+
+            // Find or create TestResult using the string testId
+            let testResult = await TestResult.findOne({ testId: stringTestId });
+
+            if (!testResult) {
+              // Create new TestResult if it doesn't exist
+              testResult = new TestResult({
+                testId: stringTestId,
+                testTitle: codingTest.title || "Untitled Test",
+                subject: codingTest.subject || "",
+                topic: codingTest.topic || "",
+                college: codingTest.college || "",
+                totalQuestions: codingTest.totalQuestions || 0,
+                passingPercentage: codingTest.passingPercentage || 40,
+                students: [],
+                stats: {
+                  totalStudents: 0,
+                  passedStudents: 0,
+                  failedStudents: 0,
+                  averageScore: 0,
+                  passRate: 0,
+                },
+                generatedAt: new Date(),
+                updatedAt: new Date(),
+              });
+              console.log("🆕 New TestResult created");
+            } else {
+              console.log("📝 Existing TestResult found");
+            }
+
+            // ✅ Step 3: Find or create student entry
+            let studentIndex = testResult.students.findIndex(
+              (s) => s.userId.toString() === userId.toString(),
+            );
+
+            // ✅ Step 4: Create solution data
+            const solutionData = {
+              problemId: problem._id,
+              problemTitle: problem.title || "Untitled Problem",
+              status: enumStatus, // "accepted"
+              code: code || "",
+              language: language || "cpp",
+              passedTests: result.passedCount || 0,
+              totalTests: result.totalCount || 0,
+              executionTime: totalExecutionTime || 0,
+              submittedAt: new Date(),
+            };
+
+            if (studentIndex === -1) {
+              // ✅ New student
+              const User = mongoose.model("User");
+              const user = await User.findById(userId);
+
+              testResult.students.push({
+                userId: userId,
+                userEmail: user?.email || "Unknown",
+                userName: user?.fullName || "Unknown Student",
+                solutions: [solutionData],
+                totalSolved: 1,
+                totalProblems: 1,
+                percentage: 100,
+                passed: true,
+                status: "in_progress",
+                startTime: new Date(),
+                endTime: null,
+                timeTaken: 0,
+              });
+              console.log("✅ New student added to TestResult");
+            } else {
+              // ✅ Existing student
+              const student = testResult.students[studentIndex];
+
+              // Check if problem already exists
+              const existingIndex = student.solutions.findIndex(
+                (s) =>
+                  s.problemId &&
+                  s.problemId.toString() === problem._id.toString(),
+              );
+
+              if (existingIndex !== -1) {
+                // Update existing solution
+                student.solutions[existingIndex] = solutionData;
+                console.log(`🔄 Updated solution for ${problem.problemId}`);
+              } else {
+                // Add new solution
+                student.solutions.push(solutionData);
+                console.log(`➕ Added solution for ${problem.problemId}`);
+              }
+
+              // Recalculate student stats
+              const acceptedSolutions = student.solutions.filter(
+                (s) => s.status === "accepted",
+              );
+              student.totalSolved = acceptedSolutions.length;
+              student.totalProblems = student.solutions.length;
+              student.percentage =
+                student.totalProblems > 0
+                  ? (acceptedSolutions.length / student.totalProblems) * 100
+                  : 0;
+              student.passed =
+                student.percentage >= (codingTest.passingPercentage || 40);
+
+              // Update status if all problems solved
+              if (
+                student.totalSolved === codingTest.totalQuestions &&
+                codingTest.totalQuestions > 0
+              ) {
+                student.status = "completed";
+                student.endTime = new Date();
+              }
+
+              console.log(
+                `📊 Student stats: ${student.totalSolved}/${student.totalProblems} (${student.percentage}%)`,
+              );
+            }
+
+            // ✅ Step 5: Recalculate overall stats
+            const students = testResult.students;
+            const totalStudents = students.length;
+            const passedStudents = students.filter((s) => s.passed).length;
+            const averageScore =
+              totalStudents > 0
+                ? students.reduce((sum, s) => sum + s.percentage, 0) /
+                  totalStudents
+                : 0;
+
+            testResult.stats = {
+              totalStudents: totalStudents,
+              passedStudents: passedStudents,
+              failedStudents: totalStudents - passedStudents,
+              averageScore: parseFloat(averageScore.toFixed(2)),
+              passRate:
+                totalStudents > 0 ? (passedStudents / totalStudents) * 100 : 0,
+            };
+
+            testResult.updatedAt = new Date();
+            await testResult.save();
+
+            console.log(`✅✅✅ TestResult updated successfully!`);
+            console.log(`📊 Test: ${codingTest.title}`);
+            console.log(
+              `📊 Students: ${totalStudents}, Passed: ${passedStudents}`,
+            );
+          }
+        } catch (error) {
+          console.error("❌ Error updating TestResult:", error);
+        }
+      } else {
+        console.log(
+          `⚠️ Solution not accepted (${enumStatus}), skipping TestResult update`,
+        );
+      }
     } catch (error) {
       console.error("❌❌❌ ERROR saving to CodingTestAttempt:", error);
       console.error("Error details:", error.errors || error.message);

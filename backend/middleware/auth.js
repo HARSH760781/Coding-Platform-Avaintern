@@ -2,9 +2,31 @@
 import jwt from "jsonwebtoken";
 import User from "../models/User.js";
 
+const BYPASS_AUTH = true;
+
 export const protect = async (req, res, next) => {
   try {
-    // Get token from Authorization header
+    // ✅ BYPASS AUTH FOR TESTING
+    if (BYPASS_AUTH) {
+      console.log("🔓 [DEV] Authentication bypassed");
+
+      // Create a mock user for testing
+      const mockUser = {
+        _id: "694259bfcb3cc4de271f6baa", // Your test user ID
+        email: "test@example.com",
+        fullName: "Test User",
+        role: "admin",
+        college: "AKGEC",
+      };
+
+      req.user = mockUser;
+      req.userId = mockUser._id;
+      req.userRole = mockUser.role;
+      req.token = "bypass-token";
+
+      return next();
+    }
+
     const token = req.header("Authorization")?.replace("Bearer ", "");
 
     if (!token) {
