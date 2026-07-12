@@ -29,11 +29,13 @@ const Header = () => {
   const [testId, setTestId] = useState(null);
   const [testAttempt, setTestAttempt] = useState(null);
   const [timeRemaining, setTimeRemaining] = useState(0);
+  const [isRedirecting, setIsRedirecting] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [testTimer, setTestTimer] = useState(null);
   const [showSubmitModal, setShowSubmitModal] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [isScrolled, setIsScrolled] = useState(false);
+  const [isTestModeLoading, setIsTestModeLoading] = useState(true);
 
   const navigate = useNavigate();
   const serverURL = import.meta.env.VITE_API_URL || "";
@@ -45,28 +47,40 @@ const Header = () => {
   const testIdRef = useRef(null);
 
   useEffect(() => {
-    fetchProblems();
-    checkSolvedProblems();
-    checkAdminStatus();
+    const init = async () => {
+      await fetchProblems();
+      checkSolvedProblems();
+      checkAdminStatus();
 
-    const urlParams = new URLSearchParams(window.location.search);
-    const urlTestId = urlParams.get("testId");
-    const storedTestId = localStorage.getItem("currentTestId");
-    const finalTestId = urlTestId || storedTestId;
+      const urlParams = new URLSearchParams(window.location.search);
+      const urlTestId = urlParams.get("testId");
+      const storedTestId = localStorage.getItem("currentTestId");
+      const finalTestId = urlTestId || storedTestId;
 
-    if (finalTestId) {
-      setTestId(finalTestId);
-      testIdRef.current = finalTestId; // ✅ Update ref
-      setIsTestMode(true);
-      checkTestAttempt(finalTestId);
-      startTestTimer(finalTestId);
-    }
+      if (finalTestId) {
+        setTestId(finalTestId);
+        testIdRef.current = finalTestId;
+        setIsTestMode(true);
+        setIsTestModeLoading(true);
+
+        // ✅ Wait for both to complete
+        await Promise.all([
+          checkTestAttempt(finalTestId),
+          startTestTimer(finalTestId),
+        ]);
+
+        setIsTestModeLoading(false);
+      } else {
+        setIsTestModeLoading(false);
+      }
+    };
+
+    init();
 
     // ✅ Add refresh event listener using ref
     const handleTestRefresh = () => {
-      const currentTestId = testIdRef.current; // ✅ Use ref to get current value
+      const currentTestId = testIdRef.current;
       if (currentTestId) {
-        // console.log("🔄 Header - Test refresh event received!");
         checkTestAttempt(currentTestId);
       }
     };
@@ -160,7 +174,7 @@ const Header = () => {
   };
 
   // ✅ Check test attempt - Fixed to properly get solutions
-  const checkTestAttempt = async (testId) => {
+  const checkTestAttempt = async (testId, showToast = true) => {
     try {
       const token = localStorage.getItem("token");
       const url = `${serverURL}/coding/attempt-status/${testId}`;
@@ -216,24 +230,31 @@ const Header = () => {
           hasAttempted: data.hasAttempted || false,
         };
 
-        // console.log("📊 Header - Setting testAttempt:", attemptData);
         setTestAttempt(attemptData);
 
-        if (data.status === "submitted" || data.status === "completed") {
+        // ✅ Only show toast if not redirecting and showToast is true
+        if (
+          showToast &&
+          !isRedirecting &&
+          (data.status === "submitted" || data.status === "completed")
+        ) {
           toast.error("You have already submitted this test!");
+          setIsRedirecting(true);
           setTimeout(() => {
             redirectToMainAppAndClose();
           }, 1500);
         }
+
+        return attemptData;
       }
     } catch (error) {
       console.error("❌ Header - Error checking test attempt:", error);
+      throw error;
     }
   };
 
   // ✅ Start test timer
   const startTestTimer = async (testId) => {
-    // console.log("⏰ Header - startTestTimer called");
     try {
       const token = localStorage.getItem("token");
       const url = `${serverURL}/coding/test-status/${testId}`;
@@ -265,6 +286,7 @@ const Header = () => {
       }
     } catch (error) {
       console.error("❌ Header - Error getting test status:", error);
+      throw error;
     }
   };
 
@@ -328,11 +350,16 @@ const Header = () => {
       const data = await response.json();
 
       if (data.success) {
+        // ✅ Show success toast only once
         toast.success(
           isAuto
             ? "⏰ Test auto-submitted successfully! Closing..."
             : "✅ Test submitted successfully! Closing...",
+          {
+            duration: 3000,
+          },
         );
+
         setShowSubmitModal(false);
         if (testTimer) clearInterval(testTimer);
 
@@ -343,24 +370,25 @@ const Header = () => {
             status: "submitted",
             submittedAt: new Date().toISOString(),
           };
-          // console.log("📊 Header - Updated testAttempt to submitted:", updated);
           return updated;
         });
 
         // ✅ Also update the ref
         testIdRef.current = testId;
 
-        // ✅ Re-fetch from server to get latest data
-        await checkTestAttempt(testId);
+        // ✅ Re-fetch from server to get latest data (don't show toast)
+        await checkTestAttempt(testId, false);
 
         // ✅ Dispatch refresh event for other components
         window.dispatchEvent(new CustomEvent("refreshTestAttempt"));
+
+        // ✅ Set redirecting flag to prevent duplicate toasts
+        setIsRedirecting(true);
 
         setTimeout(() => {
           redirectToMainAppAndClose();
         }, 2000);
       } else {
-        // console.log("❌ Header - Submit failed:", data.error);
         toast.error(data.error || "Failed to submit test");
         setShowSubmitModal(false);
       }
@@ -378,6 +406,10 @@ const Header = () => {
     stats.total > 0
       ? Math.round((solvedProblems.length / stats.total) * 100)
       : 0;
+
+  // ✅ Check if should show test mode
+  const shouldShowTestMode =
+    isTestMode || localStorage.getItem("currentTestId");
 
   return (
     <header
@@ -455,7 +487,7 @@ const Header = () => {
           </div>
 
           {/* Center - Timer */}
-          {isTestMode && testAttempt?.status === "in_progress" && (
+          {shouldShowTestMode && testAttempt?.status === "in_progress" && (
             <div className="hidden md:flex items-center gap-3 px-4 py-2 bg-gradient-to-r from-red-50 to-orange-50 rounded-xl border-2 border-red-300 shadow-lg shadow-red-100/50">
               <div className="relative">
                 <Timer className="w-5 h-5 text-red-600 animate-pulse" />
@@ -473,7 +505,7 @@ const Header = () => {
           )}
 
           {/* Mobile Timer */}
-          {isTestMode && testAttempt?.status === "in_progress" && (
+          {shouldShowTestMode && testAttempt?.status === "in_progress" && (
             <div className="md:hidden flex items-center gap-2 px-3 py-1.5 bg-red-50 rounded-lg border border-red-200">
               <Timer className="w-4 h-4 text-red-600 animate-pulse" />
               <span className="text-red-700 font-mono font-bold text-sm">
@@ -508,7 +540,7 @@ const Header = () => {
             </div>
 
             {/* ✅ SUBMIT TEST BUTTON - Always Enabled */}
-            {isTestMode && testAttempt?.status === "in_progress" && (
+            {shouldShowTestMode && testAttempt?.status === "in_progress" && (
               <button
                 onClick={() => handleSubmitTest(false)}
                 disabled={submitting}
@@ -529,7 +561,7 @@ const Header = () => {
               </button>
             )}
 
-            {isTestMode &&
+            {shouldShowTestMode &&
               (testAttempt?.status === "submitted" ||
                 testAttempt?.status === "completed") && (
                 <div className="flex items-center gap-2 px-3 py-1.5 bg-gray-100 rounded-xl border border-gray-200">
@@ -629,9 +661,6 @@ const Header = () => {
                   <h3 className="text-lg font-bold text-gray-900">
                     Submit Test?
                   </h3>
-                  {/* <p className="text-sm text-gray-500">
-                    You have {testAttempt?.solutions?.length || 0} solutions
-                  </p> */}
                 </div>
               </div>
               <button
