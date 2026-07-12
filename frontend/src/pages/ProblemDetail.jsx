@@ -92,7 +92,7 @@ const ProblemDetail = () => {
 
   const refreshTestAttempt = async () => {
     if (testId) {
-      console.log("🔄 ProblemDetail - Refreshing test attempt...");
+      // console.log("🔄 ProblemDetail - Refreshing test attempt...");
       // Dispatch a custom event that ProblemsList is listening to
       window.dispatchEvent(new CustomEvent("refreshTestAttempt"));
     }

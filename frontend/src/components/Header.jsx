@@ -66,7 +66,7 @@ const Header = () => {
     const handleTestRefresh = () => {
       const currentTestId = testIdRef.current; // ✅ Use ref to get current value
       if (currentTestId) {
-        console.log("🔄 Header - Test refresh event received!");
+        // console.log("🔄 Header - Test refresh event received!");
         checkTestAttempt(currentTestId);
       }
     };
@@ -216,7 +216,7 @@ const Header = () => {
           hasAttempted: data.hasAttempted || false,
         };
 
-        console.log("📊 Header - Setting testAttempt:", attemptData);
+        // console.log("📊 Header - Setting testAttempt:", attemptData);
         setTestAttempt(attemptData);
 
         if (data.status === "submitted" || data.status === "completed") {
@@ -233,7 +233,7 @@ const Header = () => {
 
   // ✅ Start test timer
   const startTestTimer = async (testId) => {
-    console.log("⏰ Header - startTestTimer called");
+    // console.log("⏰ Header - startTestTimer called");
     try {
       const token = localStorage.getItem("token");
       const url = `${serverURL}/coding/test-status/${testId}`;
@@ -343,7 +343,7 @@ const Header = () => {
             status: "submitted",
             submittedAt: new Date().toISOString(),
           };
-          console.log("📊 Header - Updated testAttempt to submitted:", updated);
+          // console.log("📊 Header - Updated testAttempt to submitted:", updated);
           return updated;
         });
 
@@ -360,7 +360,7 @@ const Header = () => {
           redirectToMainAppAndClose();
         }, 2000);
       } else {
-        console.log("❌ Header - Submit failed:", data.error);
+        // console.log("❌ Header - Submit failed:", data.error);
         toast.error(data.error || "Failed to submit test");
         setShowSubmitModal(false);
       }

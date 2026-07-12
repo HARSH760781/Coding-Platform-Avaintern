@@ -26,8 +26,8 @@ router.post("/coding-tests/create", async (req, res) => {
       passingPercentage,
     } = req.body;
 
-    console.log("📝 Creating coding test:", title);
-    console.log("📝 Request body:", req.body);
+    // console.log("📝 Creating coding test:", title);
+    // console.log("📝 Request body:", req.body);
 
     // Validate required fields
     if (
@@ -69,7 +69,7 @@ router.post("/coding-tests/create", async (req, res) => {
 
     await test.save();
 
-    console.log(`✅ Coding test created: ${testId} - ${title}`);
+    // console.log(`✅ Coding test created: ${testId} - ${title}`);
 
     res.json({
       success: true,
@@ -166,10 +166,10 @@ router.post("/submit", protect, async (req, res) => {
       });
     }
 
-    console.log(`👤 User ID: ${userId}`);
-    console.log(`📝 Problem ID: ${problemId}`);
-    console.log(`💻 Language: ${language}`);
-    console.log(`🧪 Test ID: ${testId}`);
+    // console.log(`👤 User ID: ${userId}`);
+    // console.log(`📝 Problem ID: ${problemId}`);
+    // console.log(`💻 Language: ${language}`);
+    // console.log(`🧪 Test ID: ${testId}`);
 
     // ✅ Get language ID
     const languageId = judge0Service.getLanguageId(language);
@@ -243,9 +243,9 @@ router.post("/submit", protect, async (req, res) => {
       enumStatus = "wrong_answer";
     }
 
-    console.log(`📊 Display Status: ${displayStatus}`);
-    console.log(`📊 Enum Status: ${enumStatus}`);
-    console.log(`📊 Passed: ${result.passedCount}/${result.totalCount}`);
+    // console.log(`📊 Display Status: ${displayStatus}`);
+    // console.log(`📊 Enum Status: ${enumStatus}`);
+    // console.log(`📊 Passed: ${result.passedCount}/${result.totalCount}`);
 
     // ============================================
     // Calculate total execution time
@@ -259,14 +259,14 @@ router.post("/submit", protect, async (req, res) => {
     // ✅ STORE IN CODINGTESTATTEMPT (Nested Structure)
     // ============================================
     try {
-      console.log(`🔍 Looking for user: ${userId}`);
+      // console.log(`🔍 Looking for user: ${userId}`);
 
       // ✅ Step 1: Find the user's document
       let userAttempt = await CodingTestAttempt.findOne({ userId: userId });
 
       if (!userAttempt) {
         // ✅ Step 2: Create new user document if not exists
-        console.log(`🆕 Creating new user document`);
+        // console.log(`🆕 Creating new user document`);
         userAttempt = new CodingTestAttempt({
           userId: userId,
           tests: [],
@@ -281,7 +281,7 @@ router.post("/submit", protect, async (req, res) => {
 
       if (testIndex === -1) {
         // ✅ Step 4: Create new test if not exists
-        console.log(`🆕 Creating new test: ${testId}`);
+        // console.log(`🆕 Creating new test: ${testId}`);
         const newTest = {
           testId: testId,
           status: "in_progress",
@@ -295,10 +295,10 @@ router.post("/submit", protect, async (req, res) => {
         userAttempt.tests.push(newTest);
         testIndex = userAttempt.tests.length - 1;
       } else {
-        console.log(`📝 Found existing test at index: ${testIndex}`);
-        console.log(
-          `📝 Current solutions: ${userAttempt.tests[testIndex].solutions.length}`,
-        );
+        // console.log(`📝 Found existing test at index: ${testIndex}`);
+        // console.log(
+        //   `📝 Current solutions: ${userAttempt.tests[testIndex].solutions.length}`,
+        // );
       }
 
       // ✅ Step 5: Get the test
@@ -325,10 +325,10 @@ router.post("/submit", protect, async (req, res) => {
       // ✅ Step 8: Update or add solution
       if (existingIndex !== -1) {
         test.solutions[existingIndex] = solutionData;
-        console.log(`🔄 Updated solution for ${problemId}`);
+        // console.log(`🔄 Updated solution for ${problemId}`);
       } else {
         test.solutions.push(solutionData);
-        console.log(`➕ Added solution for ${problemId}`);
+        // console.log(`➕ Added solution for ${problemId}`);
       }
 
       // ✅ Step 9: Update test stats
@@ -381,7 +381,7 @@ router.post("/submit", protect, async (req, res) => {
       // ✅ STEP 13: ALSO SAVE TO TESTRESULT
       // ============================================
       if (enumStatus === "accepted") {
-        console.log(`📊 Updating TestResult for test: ${testId}`, userId);
+        // console.log(`📊 Updating TestResult for test: ${testId}`, userId);
         try {
           // ✅ Step 1: Find the CodingTest document using the MongoDB _id
           const codingTest = await CodingTest.findById(testId);

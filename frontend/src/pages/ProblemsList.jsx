@@ -159,7 +159,7 @@ const ProblemsList = () => {
   useEffect(() => {
     const handleTestRefresh = () => {
       if (testId) {
-        console.log("🔄 ProblemsList - Test refresh event received!");
+        // console.log("🔄 ProblemsList - Test refresh event received!");
         checkTestAttempt(testId);
       }
     };
@@ -207,7 +207,7 @@ const ProblemsList = () => {
 
   const refreshTestAttempt = async () => {
     if (testId) {
-      console.log("🔄 ProblemsList - Refreshing test attempt...");
+      // console.log("🔄 ProblemsList - Refreshing test attempt...");
       await checkTestAttempt(testId);
     }
   };
@@ -234,7 +234,7 @@ const ProblemsList = () => {
       );
 
       const data = await response.json();
-      console.log("📊 ProblemsList - checkTestAttempt response:", data);
+      // console.log("📊 ProblemsList - checkTestAttempt response:", data);
 
       if (data.success) {
         // ✅ Get data directly from the response
@@ -246,15 +246,15 @@ const ProblemsList = () => {
         const passed = data.passed || false;
         const hasAttempted = data.hasAttempted || false;
 
-        console.log("📊 Setting testAttempt with:", {
-          status,
-          solutionsCount: solutions.length,
-          passedCount,
-          totalProblems,
-          percentage,
-          passed,
-          hasAttempted,
-        });
+        // console.log("📊 Setting testAttempt with:", {
+        //   status,
+        //   solutionsCount: solutions.length,
+        //   passedCount,
+        //   totalProblems,
+        //   percentage,
+        //   passed,
+        //   hasAttempted,
+        // });
 
         // ✅ Store everything in testAttempt state
         setTestAttempt({
