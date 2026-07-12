@@ -1,10 +1,22 @@
 // backend/middleware/auth.js
 import jwt from "jsonwebtoken";
 import User from "../models/User.js";
+import mongoose from "mongoose";
 
 // const BYPASS_AUTH = true;
 const BYPASS_AUTH = false;
 
+const BYPASS_USER = {
+  _id: "6921b7269beaa5aab8513024", // Your test user ID from database
+  email: "test@gmail.com",
+  fullName: "Harsh Jaiswal",
+  role: "admin",
+  college: "AKGEC",
+  branch: "CS",
+  phone: "7607811792",
+  location: "Gorakhpur",
+  isOnline: true,
+};
 export const protect = async (req, res, next) => {
   try {
     // ✅ BYPASS AUTH FOR TESTING
@@ -13,17 +25,29 @@ export const protect = async (req, res, next) => {
 
       // Create a mock user for testing
       const mockUser = {
-        _id: "694259bfcb3cc4de271f6baa", // Your test user ID
-        email: "test@example.com",
-        fullName: "Test User",
-        role: "admin",
-        college: "AKGEC",
+        _id: new mongoose.Types.ObjectId(BYPASS_USER._id),
+        email: BYPASS_USER.email,
+        fullName: BYPASS_USER.fullName,
+        role: BYPASS_USER.role,
+        college: BYPASS_USER.college,
+        branch: BYPASS_USER.branch || "CS",
+        phone: BYPASS_USER.phone || "",
+        location: BYPASS_USER.location || "",
+        isOnline: BYPASS_USER.isOnline || true,
+        // ✅ Add any other fields your app needs
+        toObject: function () {
+          return this;
+        },
+        toString: function () {
+          return this._id.toString();
+        },
       };
 
       req.user = mockUser;
       req.userId = mockUser._id;
       req.userRole = mockUser.role;
       req.token = "bypass-token";
+      req.isBypassed = true;
 
       return next();
     }

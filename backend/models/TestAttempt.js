@@ -28,6 +28,7 @@ const testAttemptSchema = new mongoose.Schema({
       // ✅ All possible status values
       "accepted",
       "Accepted",
+      "submitted",
       "Accepted ✅",
       "wrong_answer",
       "wrong-answer",
@@ -88,6 +89,7 @@ const testAttemptSchema = new mongoose.Schema({
           "accepted",
           "Accepted",
           "Accepted ✅",
+          "submitted",
           "wrong_answer",
           "wrong-answer",
           "Wrong Answer",

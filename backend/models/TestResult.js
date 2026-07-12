@@ -96,7 +96,13 @@ const testResultSchema = new mongoose.Schema({
       },
       status: {
         type: String,
-        enum: ["in_progress", "completed", "timed_out"],
+        enum: [
+          "in_progress",
+          "not_started",
+          "completed",
+          "timed_out",
+          "submitted",
+        ],
         default: "in_progress",
       },
       startTime: Date,

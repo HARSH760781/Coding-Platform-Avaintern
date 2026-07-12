@@ -225,7 +225,7 @@ const ProblemsList = () => {
     try {
       const token = localStorage.getItem("token");
       const response = await fetch(
-        `${serverURL}/coding/check-attempt/${testId}`,
+        `${serverURL}/coding/attempt-status/${testId}`,
         {
           headers: {
             Authorization: `Bearer ${token}`,
@@ -234,52 +234,50 @@ const ProblemsList = () => {
       );
 
       const data = await response.json();
+      console.log("📊 ProblemsList - checkTestAttempt response:", data);
 
       if (data.success) {
-        const test = tests.find((t) => t._id === testId);
-        const now = new Date();
-        const endTime = new Date(test?.endTime);
-        const hasEnded = now > endTime;
+        // ✅ Get data directly from the response
+        const status = data.status || "in_progress";
+        const solutions = data.solutions || [];
+        const passedCount = data.passedCount || 0;
+        const totalProblems = data.totalProblems || 0;
+        const percentage = data.percentage || 0;
+        const passed = data.passed || false;
+        const hasAttempted = data.hasAttempted || false;
 
-        let status = data.status || "in_progress";
-        if (
-          hasEnded &&
-          (status === "in_progress" || status === "not_started")
-        ) {
-          status = "completed";
-        }
-
-        // ✅ Get solutions from the correct location
-        const solutions = data.solutions || data.attemptData?.solutions || [];
-        const totalSolved = solutions.filter(
-          (s) => s.status === "accepted",
-        ).length;
-
-        const finalTotalSolved =
-          solutions.length > 0 ? totalSolved : data.passedCount || 0;
-
-        const totalQuestions = test?.totalQuestions || data.totalProblems || 0;
-        const recalculatedPercentage =
-          totalQuestions > 0
-            ? (finalTotalSolved / totalQuestions) * 100
-            : data.percentage || 0;
-        const passed =
-          recalculatedPercentage >= (test?.passingPercentage || 40);
+        console.log("📊 Setting testAttempt with:", {
+          status,
+          solutionsCount: solutions.length,
+          passedCount,
+          totalProblems,
+          percentage,
+          passed,
+          hasAttempted,
+        });
 
         // ✅ Store everything in testAttempt state
         setTestAttempt({
           status: status,
           solutions: solutions,
-          passedCount: data.passedCount || 0,
-          totalProblems: totalQuestions,
-          percentage: recalculatedPercentage,
+          passedCount: passedCount,
+          totalProblems: totalProblems,
+          percentage: percentage,
           passed: passed,
-          hasAttempted: data.hasAttempted || hasEnded,
+          hasAttempted: hasAttempted,
           message: data.message,
         });
+
+        // ✅ Check if test is already submitted
+        if (status === "submitted" || status === "completed") {
+          toast.error("You have already submitted this test!");
+          setTimeout(() => {
+            redirectToMainAppAndClose();
+          }, 1500);
+        }
       }
     } catch (error) {
-      console.error("Error checking attempt:", error);
+      console.error("❌ ProblemsList - Error checking attempt:", error);
     }
   };
 
@@ -376,6 +374,7 @@ const ProblemsList = () => {
   const handleSubmitTest = async (isAuto = false) => {
     if (submitting) return;
 
+    // ✅ Check if test is already submitted
     if (
       testAttempt?.status === "submitted" ||
       testAttempt?.status === "completed"
@@ -384,13 +383,17 @@ const ProblemsList = () => {
       return;
     }
 
-    if (isAuto) {
-      await confirmSubmit(true);
-      return;
+    // ✅ Check if test is in progress
+    if (testAttempt?.status === "in_progress") {
+      if (isAuto) {
+        await confirmSubmit(true);
+        return;
+      }
+      // ✅ Show confirmation modal for manual submission
+      setShowSubmitModal(true);
+    } else {
+      toast.error("Test is not in progress");
     }
-
-    // ✅ Show confirmation modal for manual submission
-    setShowSubmitModal(true);
   };
 
   // ✅ Confirm submission

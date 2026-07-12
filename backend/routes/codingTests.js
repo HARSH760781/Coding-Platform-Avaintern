@@ -344,12 +344,12 @@ router.post("/submit", protect, async (req, res) => {
       test.passed = test.percentage >= 40;
 
       // ✅ Step 10: Mark test as completed if all problems solved
-      if (test.totalProblems > 0 && test.passedCount === test.totalProblems) {
-        test.status = "completed";
-        test.endTime = new Date();
-        test.submittedAt = new Date();
-        console.log(`🎉 Test ${testId} completed!`);
-      }
+      // if (test.totalProblems > 0 && test.passedCount === test.totalProblems) {
+      //   test.status = "completed";
+      //   test.endTime = new Date();
+      //   test.submittedAt = new Date();
+      //   console.log(`🎉 Test ${testId} completed!`);
+      // }
 
       // ✅ Step 11: Update overall user stats
       const allTests = userAttempt.tests;
@@ -498,13 +498,13 @@ router.post("/submit", protect, async (req, res) => {
                 student.percentage >= (codingTest.passingPercentage || 40);
 
               // Update status if all problems solved
-              if (
-                student.totalSolved === codingTest.totalQuestions &&
-                codingTest.totalQuestions > 0
-              ) {
-                student.status = "completed";
-                student.endTime = new Date();
-              }
+              // if (
+              //   student.totalSolved === codingTest.totalQuestions &&
+              //   codingTest.totalQuestions > 0
+              // ) {
+              //   student.status = "completed";
+              //   student.endTime = new Date();
+              // }
 
               console.log(
                 `📊 Student stats: ${student.totalSolved}/${student.totalProblems} (${student.percentage}%)`,
@@ -1092,7 +1092,7 @@ router.post("/submit-test", protect, async (req, res) => {
     const { testId } = req.body;
     const userId = req.userId;
 
-    console.log(`📤 Submitting test: ${testId} for user: ${userId}`);
+    console.log(`📤 Submitting test: ${testId} for user: ${userId}`, testId);
     console.log(`📤 testId type: ${typeof testId}`);
     console.log(`📤 userId type: ${typeof userId}`);
 
@@ -1224,7 +1224,7 @@ router.post("/submit-test", protect, async (req, res) => {
       passedCount: test.passedCount,
     });
 
-    if (test.status === "submitted") {
+    if (test.status === "submitted" || test.status === "completed") {
       return res.status(400).json({
         success: false,
         error: "Test already submitted",
