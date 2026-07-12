@@ -1,6 +1,6 @@
 // frontend/src/components/Header.jsx
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import Logo from "../assets/logo.png";
 import {
@@ -41,6 +41,9 @@ const Header = () => {
   // ✅ Main app URL
   const MAIN_APP_URL = "https://avainternlms.in";
 
+  // ✅ Use ref to store testId for event listener
+  const testIdRef = useRef(null);
+
   useEffect(() => {
     fetchProblems();
     checkSolvedProblems();
@@ -51,21 +54,40 @@ const Header = () => {
     const storedTestId = localStorage.getItem("currentTestId");
     const finalTestId = urlTestId || storedTestId;
 
-    // console.log("🔍 Header - Final Test ID:", finalTestId);
-
     if (finalTestId) {
       setTestId(finalTestId);
+      testIdRef.current = finalTestId; // ✅ Update ref
       setIsTestMode(true);
       checkTestAttempt(finalTestId);
       startTestTimer(finalTestId);
     }
 
+    // ✅ Add refresh event listener using ref
+    const handleTestRefresh = () => {
+      const currentTestId = testIdRef.current; // ✅ Use ref to get current value
+      if (currentTestId) {
+        console.log("🔄 Header - Test refresh event received!");
+        checkTestAttempt(currentTestId);
+      }
+    };
+
+    window.addEventListener("refreshTestAttempt", handleTestRefresh);
+
     const handleScroll = () => {
       setIsScrolled(window.scrollY > 10);
     };
     window.addEventListener("scroll", handleScroll);
-    return () => window.removeEventListener("scroll", handleScroll);
+
+    return () => {
+      window.removeEventListener("scroll", handleScroll);
+      window.removeEventListener("refreshTestAttempt", handleTestRefresh);
+    };
   }, []);
+
+  // ✅ Update ref whenever testId changes
+  useEffect(() => {
+    testIdRef.current = testId;
+  }, [testId]);
 
   const fetchProblems = async () => {
     try {
@@ -107,7 +129,6 @@ const Header = () => {
 
   // ✅ Redirect to Main App and Close Current Tab
   const redirectToMainAppAndClose = () => {
-    // console.log("🔄 Header - Redirecting to main app...");
     try {
       localStorage.removeItem("currentTestId");
       localStorage.removeItem("testId");
@@ -126,7 +147,6 @@ const Header = () => {
           },
           MAIN_APP_URL,
         );
-        // console.log("📤 Sent TEST_COMPLETED message to parent window");
       }
 
       window.location.href = MAIN_APP_URL;
@@ -141,7 +161,6 @@ const Header = () => {
 
   // ✅ Check test attempt - Fixed to properly get solutions
   const checkTestAttempt = async (testId) => {
-    // console.log("🔍 Header - checkTestAttempt called");
     try {
       const token = localStorage.getItem("token");
       const url = `${serverURL}/coding/attempt-status/${testId}`;
@@ -178,8 +197,6 @@ const Header = () => {
           solutions = Object.values(data.solutions);
         }
 
-        // console.log("📊 Header - Solutions found:", solutions.length);
-
         // ✅ Get other data
         const passedCount =
           data.passedCount || data.attemptData?.totalSolved || 0;
@@ -199,6 +216,7 @@ const Header = () => {
           hasAttempted: data.hasAttempted || false,
         };
 
+        console.log("📊 Header - Setting testAttempt:", attemptData);
         setTestAttempt(attemptData);
 
         if (data.status === "submitted" || data.status === "completed") {
@@ -229,7 +247,6 @@ const Header = () => {
       const data = await response.json();
 
       if (data.success && data.status === "active") {
-        // console.log("✅ Header - Test is active, setting timer");
         setTimeRemaining(data.timeRemaining);
 
         const timer = setInterval(() => {
@@ -284,13 +301,8 @@ const Header = () => {
     setShowSubmitModal(true);
   };
 
-  // ✅ Confirm submission
+  // ✅ Confirm submission - UPDATED with immediate state update
   const confirmSubmit = async (isAuto = false) => {
-    // console.log("🔴🔴🔴 Header - confirmSubmit CALLED! 🔴🔴🔴");
-    // console.log("📤 Header - confirmSubmit called, isAuto:", isAuto);
-    // console.log("📤 Header - testId:", testId);
-    // console.log("📤 Header - submitting:", submitting);
-
     if (!testId) {
       console.error("❌ Header - No testId available!");
       toast.error("No test ID found. Please try again.");
@@ -300,13 +312,9 @@ const Header = () => {
     try {
       setSubmitting(true);
       const token = localStorage.getItem("token");
-      // console.log("📤 Header - Token present:", !!token);
 
       const url = `${serverURL}/coding/submit-test`;
       const body = { testId };
-
-      // console.log("🔍 Header - Submitting to URL:", url);
-      // console.log("📤 Header - Request body:", body);
 
       const response = await fetch(url, {
         method: "POST",
@@ -317,13 +325,7 @@ const Header = () => {
         body: JSON.stringify(body),
       });
 
-      // console.log("📡 Header - Submit response status:", response.status);
-
       const data = await response.json();
-      // console.log(
-      //   "📤 Header - Submit response:",
-      //   JSON.stringify(data, null, 2),
-      // );
 
       if (data.success) {
         toast.success(
@@ -334,7 +336,24 @@ const Header = () => {
         setShowSubmitModal(false);
         if (testTimer) clearInterval(testTimer);
 
-        // ✅ Dispatch refresh event before closing
+        // ✅ IMMEDIATELY update the local state
+        setTestAttempt((prev) => {
+          const updated = {
+            ...prev,
+            status: "submitted",
+            submittedAt: new Date().toISOString(),
+          };
+          console.log("📊 Header - Updated testAttempt to submitted:", updated);
+          return updated;
+        });
+
+        // ✅ Also update the ref
+        testIdRef.current = testId;
+
+        // ✅ Re-fetch from server to get latest data
+        await checkTestAttempt(testId);
+
+        // ✅ Dispatch refresh event for other components
         window.dispatchEvent(new CustomEvent("refreshTestAttempt"));
 
         setTimeout(() => {
@@ -623,42 +642,16 @@ const Header = () => {
               </button>
             </div>
 
-            <div className="space-y-3 mb-6">
-              <div className="bg-gray-50 rounded-lg p-4 grid grid-cols-2 gap-2">
-                <div>
-                  <p className="text-xs text-gray-500">Attempted</p>
-                  <p className="text-lg font-bold text-gray-800">
-                    {testAttempt?.solutions?.length || 0}
-                  </p>
-                </div>
-                <div>
-                  <p className="text-xs text-gray-500">Solved</p>
-                  <p className="text-lg font-bold text-emerald-600">
-                    {testAttempt?.passedCount || 0}
-                  </p>
-                </div>
-                <div>
-                  <p className="text-xs text-gray-500">Score</p>
-                  <p className="text-lg font-bold text-indigo-600">
-                    {testAttempt?.percentage?.toFixed(1) || 0}%
-                  </p>
-                </div>
-                <div>
-                  <p className="text-xs text-gray-500">Status</p>
-                  <p className="text-lg font-bold text-gray-800">
-                    {testAttempt?.passed ? "✅ Passed" : "❌ Failed"}
-                  </p>
-                </div>
-              </div>
-              <div className="bg-amber-50 border border-amber-200 rounded-lg p-3">
-                <p className="text-sm text-amber-700 flex items-start gap-2">
-                  <span className="text-lg">⚠️</span>
-                  <span>
-                    Once submitted, you cannot make any more changes to your
-                    test. This tab will close automatically.
-                  </span>
-                </p>
-              </div>
+            {/* ✅ Warning only - no details */}
+            <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 mb-6">
+              <p className="text-sm text-amber-700 flex items-start gap-2">
+                <span className="text-lg">⚠️</span>
+                <span>
+                  Are you sure you want to submit this test? Once submitted, you
+                  cannot make any more changes to your test. This tab will close
+                  automatically.
+                </span>
+              </p>
             </div>
 
             <div className="flex gap-3">
@@ -685,7 +678,7 @@ const Header = () => {
                 ) : (
                   <>
                     <Send className="w-4 h-4" />
-                    Submit & Close
+                    Yes, Submit
                   </>
                 )}
               </button>
