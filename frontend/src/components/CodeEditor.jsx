@@ -503,7 +503,10 @@ const CodeEditor = ({
   }
 
   return (
-    <div className="flex flex-col h-full bg-gray-900">
+    <div
+      className="flex flex-col h-full bg-gray-900"
+      style={{ paddingTop: `64px` }}
+    >
       {/* Toolbar */}
       <div className="flex flex-wrap items-center justify-between gap-2 p-3 bg-gradient-to-r from-gray-800 to-gray-850 border-b border-gray-700 flex-shrink-0">
         <div className="flex flex-wrap items-center gap-3">
