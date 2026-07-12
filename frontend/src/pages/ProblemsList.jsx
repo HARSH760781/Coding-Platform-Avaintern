@@ -553,7 +553,7 @@ const ProblemsList = () => {
               </div>
 
               {/* ✅ Submit Button - Always Enabled */}
-              <button
+              {/* <button
                 onClick={() => handleSubmitTest(false)}
                 className="px-4 py-1.5 rounded-lg text-sm font-medium transition-all duration-300 bg-gradient-to-r from-emerald-600 to-green-600 text-white hover:shadow-lg hover:shadow-emerald-500/25 hover:scale-[1.02] flex items-center gap-2"
               >
@@ -568,7 +568,7 @@ const ProblemsList = () => {
                     Submit Test
                   </>
                 )}
-              </button>
+              </button> */}
             </div>
           </div>
         )}

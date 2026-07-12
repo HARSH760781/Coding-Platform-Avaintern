@@ -629,9 +629,9 @@ const Header = () => {
                   <h3 className="text-lg font-bold text-gray-900">
                     Submit Test?
                   </h3>
-                  <p className="text-sm text-gray-500">
+                  {/* <p className="text-sm text-gray-500">
                     You have {testAttempt?.solutions?.length || 0} solutions
-                  </p>
+                  </p> */}
                 </div>
               </div>
               <button
