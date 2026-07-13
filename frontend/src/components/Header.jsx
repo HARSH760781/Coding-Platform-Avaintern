@@ -704,9 +704,9 @@ const Header = () => {
               <p className="text-sm text-amber-700 flex items-start gap-2">
                 <span className="text-lg">⚠️</span>
                 <span>
-                  Are you sure you want to submit this test? Once submitted, you
-                  cannot make any more changes to your test. This tab will close
-                  automatically.
+                  Are you sure you want to submit this test? Once you submitted,
+                  you cannot make any more changes to your test. This tab will
+                  close automatically.
                 </span>
               </p>
             </div>
@@ -730,7 +730,7 @@ const Header = () => {
                 {submitting ? (
                   <>
                     <Loader2 className="w-4 h-4 animate-spin" />
-                    Submitting...
+                    Submitting....
                   </>
                 ) : (
                   <>
