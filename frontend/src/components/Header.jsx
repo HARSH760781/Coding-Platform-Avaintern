@@ -18,7 +18,7 @@ import {
 } from "lucide-react";
 import { getProblems } from "../services/api";
 import toast from "react-hot-toast";
-import { useRole } from "../hooks/useRole"; // ✅ Import the hook
+import { useRole } from "../Hooks/useRole"; // ✅ Import the hook
 
 const Header = () => {
   const [problems, setProblems] = useState([]);
