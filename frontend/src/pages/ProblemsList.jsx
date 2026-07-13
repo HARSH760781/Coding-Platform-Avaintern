@@ -220,7 +220,7 @@ const ProblemsList = () => {
       );
 
       const data = await response.json();
-      console.log("📊 ProblemsList - checkTestAttempt response:", data);
+      // console.log("📊 ProblemsList - checkTestAttempt response:", data);
 
       if (data.success) {
         const status = data.status || "in_progress";
@@ -478,9 +478,9 @@ const ProblemsList = () => {
       }
       // ✅ Also listen for solved problems changes
       if (e.key && e.key.includes("_solvedProblems_")) {
-        console.log(
-          "🔄 ProblemsList - Solved problems updated in localStorage",
-        );
+        // console.log(
+        //   "🔄 ProblemsList - Solved problems updated in localStorage",
+        // );
         const currentTestId = localStorage.getItem("currentTestId");
         checkSolvedProblems(currentTestId);
       }
@@ -533,7 +533,7 @@ const ProblemsList = () => {
     const handleTestRefresh = () => {
       const currentTestId = localStorage.getItem("currentTestId");
       if (currentTestId) {
-        console.log("🔄 ProblemsList - Test refresh event received!");
+        // console.log("🔄 ProblemsList - Test refresh event received!");
         setTestId(currentTestId);
         setIsTestMode(true);
         setIsInitialLoad(false);

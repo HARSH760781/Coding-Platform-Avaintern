@@ -486,6 +486,8 @@ const ProblemDetail = () => {
         style={{
           flex: isEditorFullscreen ? "none" : "1",
           width: isEditorFullscreen ? "100%" : "auto",
+          minWidth: isEditorFullscreen ? "100%" : "0",
+          overflow: "hidden",
         }}
       >
         {/* Editor Toolbar with Fullscreen Toggle */}

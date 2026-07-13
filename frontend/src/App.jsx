@@ -131,12 +131,12 @@ function App() {
         const { token, role, userId, email, testId, testTitle, college } =
           event.data.data;
 
-        console.log("📥 Received USER_AUTH_DATA:", {
-          token: !!token,
-          userId,
-          testId,
-          testTitle,
-        });
+        // console.log("📥 Received USER_AUTH_DATA:", {
+        //   token: !!token,
+        //   userId,
+        //   testId,
+        //   testTitle,
+        // });
 
         // ✅ Store data
         if (token) localStorage.setItem("token", token);
@@ -164,7 +164,7 @@ function App() {
 
           // ✅ Dispatch event for components to refresh
           window.dispatchEvent(new CustomEvent("refreshTestAttempt"));
-          console.log("📤 Dispatched refreshTestAttempt event");
+          // console.log("📤 Dispatched refreshTestAttempt event");
         }, 500);
       }
     };
@@ -172,7 +172,7 @@ function App() {
     // ✅ If no data received after 5 seconds, still load (fallback)
     const timeoutId = setTimeout(() => {
       if (isLoading) {
-        console.log("⏰ Loading timeout, showing content anyway");
+        // console.log("⏰ Loading timeout, showing content anyway");
         setIsLoading(false);
         setIsDataLoaded(true);
       }
