@@ -54,21 +54,24 @@ const CodeEditor = ({
   const [hiddenResults, setHiddenResults] = useState(null);
   const [isAccepted, setIsAccepted] = useState(false);
   const [hasLoaded, setHasLoaded] = useState(false);
-  const [outputHeight, setOutputHeight] = useState(200);
-  const [isDragging, setIsDragging] = useState(false);
   const [loadingType, setLoadingType] = useState(null);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [isHoveringRun, setIsHoveringRun] = useState(false);
   const [isHoveringSubmit, setIsHoveringSubmit] = useState(false);
   const [isHoveringReset, setIsHoveringReset] = useState(false);
 
+  // ✅ Splitter state
+  const [splitRatio, setSplitRatio] = useState(65); // Editor percentage
+  const [isDraggingSplit, setIsDraggingSplit] = useState(false);
+
   const outputRef = useRef(null);
   const editorRef = useRef(null);
   const containerRef = useRef(null);
   const saveTimeoutRef = useRef(null);
+  const splitterRef = useRef(null);
 
   const dragStartY = useRef(0);
-  const dragStartHeight = useRef(0);
+  const dragStartRatio = useRef(0);
 
   // Language templates
   const templates = {
@@ -80,10 +83,9 @@ const CodeEditor = ({
   };
 
   // ============================================
-  // ✅ UPDATED: USER + TEST SPECIFIC PERSISTENCE
+  // ✅ USER + TEST SPECIFIC PERSISTENCE
   // ============================================
 
-  // ✅ Save with user + test context
   const saveEditorState = (problemId, language, code, isAccepted = false) => {
     try {
       const userId = getUserId();
@@ -100,45 +102,34 @@ const CodeEditor = ({
 
       const key = `user_${userId}_editor_${testId}_${problemId}`;
       localStorage.setItem(key, JSON.stringify(state));
-
-      console.log(
-        `💾 Code saved for user ${userId}, test ${testId}, problem ${problemId}`,
-      );
     } catch (error) {
       console.error("Error saving editor state:", error);
     }
   };
 
-  // ✅ Load with user + test context
   const loadEditorState = (problemId) => {
     try {
       const userId = getUserId();
       const testId = getCurrentTestId();
 
-      // ✅ Try user + test specific first
       const key = `user_${userId}_editor_${testId}_${problemId}`;
       let saved = localStorage.getItem(key);
 
-      // ✅ Fallback to test-specific only (migration)
       if (!saved) {
         const oldKey = `editor_${testId}_${problemId}`;
         saved = localStorage.getItem(oldKey);
         if (saved) {
           localStorage.setItem(key, saved);
           localStorage.removeItem(oldKey);
-          console.log(`📦 Migrated old data for ${problemId}`);
         }
       }
 
       if (saved) {
         const data = JSON.parse(saved);
-        // ✅ Verify user and test match
         if (data.userId && data.userId !== userId) {
-          console.warn(`⚠️ Data belongs to different user, ignoring`);
           return null;
         }
         if (data.testId && data.testId !== testId) {
-          console.warn(`⚠️ Data belongs to different test, ignoring`);
           return null;
         }
         return data;
@@ -149,20 +140,17 @@ const CodeEditor = ({
     return null;
   };
 
-  // ✅ Clear with user + test context
   const clearEditorState = (problemId) => {
     try {
       const userId = getUserId();
       const testId = getCurrentTestId();
       const key = `user_${userId}_editor_${testId}_${problemId}`;
       localStorage.removeItem(key);
-      console.log(`🗑️ Cleared code for ${problemId}`);
     } catch (error) {
       console.error("Error clearing editor state:", error);
     }
   };
 
-  // ✅ Mark problem as solved with user + test context
   const markProblemSolved = (problemId) => {
     const userId = getUserId();
     const currentTestId = localStorage.getItem("currentTestId");
@@ -173,14 +161,10 @@ const CodeEditor = ({
       if (!testSolved.includes(problemId)) {
         testSolved.push(problemId);
         localStorage.setItem(key, JSON.stringify(testSolved));
-        console.log(
-          `✅ Problem ${problemId} marked as solved for test ${currentTestId}`,
-        );
       }
     }
   };
 
-  // Load sample test cases
   const loadSampleTestCases = async () => {
     try {
       const response = await getSampleTestCases(problemId);
@@ -223,12 +207,18 @@ const CodeEditor = ({
         loadStarterCode();
       }
 
+      // Load saved split ratio
+      const savedRatio = localStorage.getItem("editorSplitRatio");
+      if (savedRatio) {
+        setSplitRatio(parseFloat(savedRatio));
+      }
+
       setHasLoaded(true);
     }
   }, [problemId]);
 
   // ============================================
-  // ✅ AUTO-SAVE ON CODE CHANGE (Debounced)
+  // ✅ AUTO-SAVE ON CODE CHANGE
   // ============================================
   useEffect(() => {
     if (problemId && hasLoaded) {
@@ -248,16 +238,12 @@ const CodeEditor = ({
     };
   }, [code, language, problemId, isAccepted, hasLoaded]);
 
-  // ============================================
-  // ✅ SAVE ON LANGUAGE CHANGE
-  // ============================================
   useEffect(() => {
     if (problemId && hasLoaded) {
       saveEditorState(problemId, language, code, isAccepted);
     }
   }, [language]);
 
-  // Scroll to bottom when output changes
   useEffect(() => {
     if (outputRef.current && isOutputExpanded) {
       setTimeout(() => {
@@ -267,39 +253,73 @@ const CodeEditor = ({
   }, [output, isOutputExpanded]);
 
   // ============================================
-  // ✅ DRAG TO RESIZE OUTPUT PANEL
+  // ✅ DRAG TO RESIZE SPLITTER (Editor/Output)
   // ============================================
-  const handleDragStart = (e) => {
+  const handleSplitterMouseDown = (e) => {
     e.preventDefault();
-    setIsDragging(true);
-    dragStartY.current = e.clientY || e.touches?.[0]?.clientY || 0;
-    dragStartHeight.current = outputHeight;
-    document.addEventListener("mousemove", handleDragMove);
-    document.addEventListener("mouseup", handleDragEnd);
-    document.addEventListener("touchmove", handleDragMove, { passive: false });
-    document.addEventListener("touchend", handleDragEnd);
+    setIsDraggingSplit(true);
+    dragStartY.current = e.clientY;
+    dragStartRatio.current = splitRatio;
+
+    document.addEventListener("mousemove", handleSplitterMouseMove);
+    document.addEventListener("mouseup", handleSplitterMouseUp);
     document.body.style.cursor = "ns-resize";
     document.body.style.userSelect = "none";
   };
 
-  const handleDragMove = (e) => {
+  const handleSplitterTouchStart = (e) => {
     e.preventDefault();
-    const clientY = e.clientY || e.touches?.[0]?.clientY || 0;
-    const deltaY = dragStartY.current - clientY;
-    const newHeight = Math.min(
-      Math.max(dragStartHeight.current + deltaY, 100),
-      500,
-    );
-    setOutputHeight(newHeight);
+    setIsDraggingSplit(true);
+    dragStartY.current = e.touches[0].clientY;
+    dragStartRatio.current = splitRatio;
+
+    document.addEventListener("touchmove", handleSplitterTouchMove, {
+      passive: false,
+    });
+    document.addEventListener("touchend", handleSplitterTouchEnd);
+    document.body.style.userSelect = "none";
   };
 
-  const handleDragEnd = () => {
-    setIsDragging(false);
-    document.removeEventListener("mousemove", handleDragMove);
-    document.removeEventListener("mouseup", handleDragEnd);
-    document.removeEventListener("touchmove", handleDragMove);
-    document.removeEventListener("touchend", handleDragEnd);
+  const handleSplitterMouseMove = (e) => {
+    if (!isDraggingSplit) return;
+    const containerRect = containerRef.current?.getBoundingClientRect();
+    if (!containerRect) return;
+
+    const containerHeight = containerRect.height;
+    const relativeY = (e.clientY - containerRect.top) / containerHeight;
+    const newRatio = Math.min(Math.max(relativeY * 100, 20), 80);
+
+    setSplitRatio(newRatio);
+    localStorage.setItem("editorSplitRatio", newRatio.toString());
+  };
+
+  const handleSplitterTouchMove = (e) => {
+    e.preventDefault();
+    if (!isDraggingSplit) return;
+    const containerRect = containerRef.current?.getBoundingClientRect();
+    if (!containerRect) return;
+
+    const containerHeight = containerRect.height;
+    const relativeY =
+      (e.touches[0].clientY - containerRect.top) / containerHeight;
+    const newRatio = Math.min(Math.max(relativeY * 100, 20), 80);
+
+    setSplitRatio(newRatio);
+    localStorage.setItem("editorSplitRatio", newRatio.toString());
+  };
+
+  const handleSplitterMouseUp = () => {
+    setIsDraggingSplit(false);
+    document.removeEventListener("mousemove", handleSplitterMouseMove);
+    document.removeEventListener("mouseup", handleSplitterMouseUp);
     document.body.style.cursor = "";
+    document.body.style.userSelect = "";
+  };
+
+  const handleSplitterTouchEnd = () => {
+    setIsDraggingSplit(false);
+    document.removeEventListener("touchmove", handleSplitterTouchMove);
+    document.removeEventListener("touchend", handleSplitterTouchEnd);
     document.body.style.userSelect = "";
   };
 
@@ -399,7 +419,7 @@ const CodeEditor = ({
     }
   };
 
-  // ✅ SUBMIT - UPDATED with solved problems tracking
+  // ✅ SUBMIT
   const handleSubmit = async () => {
     if (!code.trim()) {
       setOutput("⚠️ Please write some code first");
@@ -447,19 +467,16 @@ const CodeEditor = ({
 
         if (onRefreshTestAttempt) {
           await onRefreshTestAttempt();
-          console.log("✅ CodeEditor - Refreshed test attempt data");
         }
         if (onSubmissionComplete) {
           onSubmissionComplete(data.status, data.score);
         }
 
-        // ✅ When problem is accepted, mark as solved with user+test context
         if (data.status === "Accepted") {
           setIsAccepted(true);
           saveEditorState(problemId, language, code, true);
           markProblemSolved(problemId);
 
-          // ✅ Refresh the problem list
           if (onRefreshTestAttempt) {
             await onRefreshTestAttempt();
           }
@@ -579,15 +596,12 @@ const CodeEditor = ({
   }
 
   return (
-    <div
-      className="flex flex-col h-full bg-gray-900"
-      style={{ paddingTop: `64px` }}
-    >
+    <div className="flex flex-col h-full bg-gray-900">
       {/* Toolbar */}
       <div className="flex flex-wrap items-center justify-between gap-2 p-3 bg-gradient-to-r from-gray-800 to-gray-850 border-b border-gray-700 flex-shrink-0">
-        <div className="flex flex-wrap items-center gap-3">
-          {/* Language Selector */}
-          <div className="relative">
+        {/* Left Section */}
+        <div className="flex flex-wrap items-center gap-2 flex-1 min-w-0">
+          <div className="relative flex-shrink-0">
             <select
               value={language}
               onChange={(e) => {
@@ -626,43 +640,41 @@ const CodeEditor = ({
             </div>
           </div>
 
-          {/* Status Badge */}
-          {status && (
-            <div
-              className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full text-sm font-medium ${getStatusColor()} bg-gray-700/30 border border-gray-600/30`}
-            >
-              {getStatusIcon()}
-              <span>{getStatusDisplay()}</span>
-            </div>
-          )}
+          <div className="flex flex-wrap items-center gap-1.5 min-w-0">
+            {status && (
+              <div
+                className={`flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium ${getStatusColor()} bg-gray-700/30 border border-gray-600/30 whitespace-nowrap`}
+              >
+                {getStatusIcon()}
+                <span>{getStatusDisplay()}</span>
+              </div>
+            )}
 
-          {/* Score */}
-          {score !== null && status && (
-            <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-blue-500/10 text-blue-400 border border-blue-500/20 text-sm font-medium">
-              <Sparkles className="w-3 h-3" />
-              <span>{score.toFixed(2)}%</span>
-            </div>
-          )}
+            {score !== null && status && (
+              <div className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-blue-500/10 text-blue-400 border border-blue-500/20 text-xs font-medium whitespace-nowrap">
+                <Sparkles className="w-3 h-3" />
+                <span>{score.toFixed(0)}%</span>
+              </div>
+            )}
 
-          {/* Saved Status */}
-          {isSaved && (
-            <div className="flex items-center gap-1 text-xs text-green-400 bg-green-500/10 px-2 py-0.5 rounded-full border border-green-500/20">
-              <CheckCircle className="w-3 h-3" />
-              <span>Saved</span>
-            </div>
-          )}
+            {isSaved && (
+              <div className="flex items-center gap-1 text-xs text-green-400 bg-green-500/10 px-2 py-0.5 rounded-full border border-green-500/20 whitespace-nowrap">
+                <CheckCircle className="w-3 h-3" />
+                <span className="hidden sm:inline">Saved</span>
+              </div>
+            )}
 
-          {/* Solved Status */}
-          {isAccepted && (
-            <div className="flex items-center gap-1 text-xs text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-full border border-emerald-500/20 animate-pulse">
-              <CheckCircle className="w-3 h-3" />
-              <span>Solved ✅</span>
-            </div>
-          )}
+            {isAccepted && (
+              <div className="flex items-center gap-1 text-xs text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-full border border-emerald-500/20 animate-pulse whitespace-nowrap">
+                <CheckCircle className="w-3 h-3" />
+                <span className="hidden sm:inline">Solved ✅</span>
+              </div>
+            )}
+          </div>
         </div>
 
-        <div className="flex flex-wrap gap-2">
-          {/* Reset Button */}
+        {/* Right Section */}
+        <div className="flex flex-wrap items-center gap-1.5 flex-shrink-0 ml-auto pr-2">
           <button
             onClick={() => {
               setIsAccepted(false);
@@ -672,7 +684,7 @@ const CodeEditor = ({
             }}
             onMouseEnter={() => setIsHoveringReset(true)}
             onMouseLeave={() => setIsHoveringReset(false)}
-            className={`px-3 py-1.5 rounded-lg text-sm transition-all duration-200 flex items-center gap-1.5 ${
+            className={`px-2.5 py-1.5 rounded-lg text-sm transition-all duration-200 flex items-center gap-1.5 ${
               isHoveringReset
                 ? "bg-red-500/20 text-red-400 border border-red-500/30 scale-105"
                 : "bg-gray-700/50 text-gray-300 border border-gray-600/50 hover:bg-gray-700"
@@ -680,18 +692,17 @@ const CodeEditor = ({
             title="Reset Code"
           >
             <RotateCcw
-              className={`w-3.5 h-3.5 transition-transform duration-300 ${isHoveringReset ? "rotate-180" : ""}`}
+              className={`w-4 h-4 transition-transform duration-300 ${isHoveringReset ? "rotate-180" : ""}`}
             />
-            <span className="hidden sm:inline">Reset</span>
+            <span>Reset</span>
           </button>
 
-          {/* Run Button */}
           <button
             onClick={handleRunSamples}
             disabled={loading || sampleTestCases.length === 0}
             onMouseEnter={() => setIsHoveringRun(true)}
             onMouseLeave={() => setIsHoveringRun(false)}
-            className={`px-4 py-1.5 rounded-lg text-sm transition-all duration-200 flex items-center gap-2 ${
+            className={`px-4 py-1.5 rounded-lg text-sm font-medium transition-all duration-200 flex items-center gap-2 ${
               loading && loadingType === "run"
                 ? "bg-gray-700 text-gray-400 cursor-not-allowed"
                 : loading || sampleTestCases.length === 0
@@ -705,25 +716,23 @@ const CodeEditor = ({
           >
             {loading && loadingType === "run" ? (
               <>
-                <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                <span className="hidden sm:inline">Running...</span>
+                <Loader2 className="w-4 h-4 animate-spin" />
+                <span>Running...</span>
               </>
             ) : (
               <>
-                <Play className="w-3.5 h-3.5" />
-                <span className="hidden sm:inline">Run</span>
-                <span className="sm:hidden">▶</span>
+                <Play className="w-4 h-4" />
+                <span>Run</span>
               </>
             )}
           </button>
 
-          {/* Submit Button */}
           <button
             onClick={handleSubmit}
             disabled={loading}
             onMouseEnter={() => setIsHoveringSubmit(true)}
             onMouseLeave={() => setIsHoveringSubmit(false)}
-            className={`px-4 py-1.5 rounded-lg text-sm transition-all duration-200 flex items-center gap-2 ${
+            className={`px-5 py-1.5 rounded-lg text-sm font-medium transition-all duration-200 flex items-center gap-2 mr-1 ${
               loading && loadingType === "submit"
                 ? "bg-gray-600 cursor-not-allowed"
                 : loading
@@ -737,192 +746,218 @@ const CodeEditor = ({
           >
             {loading && loadingType === "submit" ? (
               <>
-                <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                <span className="hidden sm:inline">Submitting...</span>
+                <Loader2 className="w-4 h-4 animate-spin" />
+                <span>Submitting...</span>
               </>
             ) : (
               <>
-                <Send className="w-3.5 h-3.5" />
-                <span className="hidden sm:inline">Submit</span>
-                <span className="sm:hidden">🚀</span>
+                <Send className="w-4 h-4" />
+                <span>Submit</span>
               </>
             )}
           </button>
         </div>
       </div>
 
-      {/* Editor */}
-      <div className="flex-1 relative min-h-0">
-        <Editor
-          height="100%"
-          language={language}
-          value={code}
-          onChange={(value) => setCode(value || "")}
-          theme="vs-dark"
-          onMount={handleEditorDidMount}
-          options={{
-            minimap: { enabled: true, scale: 0.8 },
-            fontSize: 14,
-            lineNumbers: "on",
-            automaticLayout: true,
-            scrollBeyondLastLine: false,
-            tabSize: 4,
-            wordWrap: "on",
-            formatOnPaste: true,
-            formatOnType: true,
-            bracketPairColorization: { enabled: true },
-            renderWhitespace: "selection",
-            cursorBlinking: "smooth",
-            smoothScrolling: true,
-            cursorSmoothCaretAnimation: "on",
-            fontFamily:
-              "'JetBrains Mono', 'Fira Code', 'Cascadia Code', monospace",
-            fontLigatures: true,
-            renderLineHighlight: "all",
-            lineHeight: 1.6,
-            padding: { top: 8, bottom: 8 },
-            suggest: {
-              showKeywords: true,
-              showSnippets: true,
-              showFunctions: true,
-              showConstructors: true,
-              showDeprecated: true,
-            },
-            quickSuggestions: true,
-            parameterHints: { enabled: true },
-            autoClosingBrackets: "always",
-            autoClosingQuotes: "always",
-            autoIndent: "full",
-            folding: true,
-            foldingStrategy: "indentation",
-            codeLens: true,
-          }}
-        />
-      </div>
-
-      {/* Output Panel */}
-      <div
-        ref={containerRef}
-        className={`bg-gray-900 border-t border-gray-700 transition-all duration-300 overflow-hidden flex-shrink-0 ${
-          isOutputExpanded ? "" : "h-10"
-        }`}
-        style={{
-          minHeight: isOutputExpanded ? "48px" : "40px",
-          height: isOutputExpanded ? `${outputHeight}px` : "40px",
-        }}
-      >
-        {/* Drag Handle - Only show when expanded */}
-        {isOutputExpanded && (
-          <div
-            className="flex items-center justify-center py-0.5 bg-gradient-to-r from-gray-800 to-gray-850 hover:from-gray-700 hover:to-gray-750 cursor-ns-resize transition-all duration-150 group relative select-none"
-            onMouseDown={handleDragStart}
-            onTouchStart={handleDragStart}
-          >
-            <div className="flex items-center gap-2 px-4 py-0.5">
-              <GripHorizontal className="w-4 h-4 text-gray-500 group-hover:text-gray-300 transition-colors" />
-              <span className="text-[8px] text-gray-500 group-hover:text-gray-300 transition-colors uppercase tracking-wider font-medium">
-                Drag to resize
-              </span>
-            </div>
-            <div className="absolute inset-x-0 top-1/2 -translate-y-1/2 h-0.5 bg-gradient-to-r from-transparent via-gray-500 to-transparent opacity-0 group-hover:opacity-50 transition-opacity"></div>
-          </div>
-        )}
-
-        {/* Output Header */}
+      {/* ✅ Editor & Output Container with Splitter */}
+      <div ref={containerRef} className="flex-1 relative flex flex-col min-h-0">
+        {/* Editor Area */}
         <div
-          className="flex items-center justify-between px-4 py-2 bg-gradient-to-r from-gray-800 to-gray-850 border-b border-gray-700 cursor-pointer hover:from-gray-750 hover:to-gray-800 transition-all duration-200 h-10 flex-shrink-0 group"
-          onClick={() => setIsOutputExpanded(!isOutputExpanded)}
+          className="relative overflow-hidden"
+          style={{
+            flex: `0 0 ${splitRatio}%`,
+            minHeight: "80px",
+          }}
         >
-          <div className="flex items-center gap-3 overflow-hidden">
-            <div className="flex items-center gap-2">
-              <Terminal className="w-3.5 h-3.5 text-gray-400" />
-              <span className="text-gray-300 font-medium text-sm whitespace-nowrap">
-                Output
-              </span>
-            </div>
-            {loading && (
-              <div className="flex items-center gap-2">
-                <Loader2 className="w-3 h-3 text-blue-400 animate-spin" />
-                <span className="text-blue-400 text-xs">
-                  {loadingType === "run" ? "Running..." : "Submitting..."}
-                </span>
-              </div>
-            )}
-            {!loading && testResults.length > 0 && (
-              <div className="flex gap-2 text-sm">
-                <span className="text-green-400 whitespace-nowrap flex items-center gap-1">
-                  <CheckCircle className="w-3 h-3" />
-                  {testResults.filter((t) => t.passed).length}
-                </span>
-                <span className="text-red-400 whitespace-nowrap flex items-center gap-1">
-                  <XCircle className="w-3 h-3" />
-                  {testResults.filter((t) => !t.passed).length}
-                </span>
-                <span className="text-gray-500 whitespace-nowrap">
-                  ({passedCount}/{totalCount})
-                </span>
-              </div>
-            )}
-            {errorDetails && (
-              <span className="text-red-400 text-xs whitespace-nowrap flex items-center gap-1">
-                <AlertCircle className="w-3 h-3" />
-                Error
-              </span>
-            )}
-            {isSaved && (
-              <span className="text-green-400 text-xs whitespace-nowrap flex items-center gap-1">
-                <CheckCircle className="w-3 h-3" />
-                Saved
-              </span>
-            )}
-          </div>
-          <div className="flex items-center gap-2 flex-shrink-0">
-            <span className="text-gray-500 text-xs group-hover:text-gray-400 transition-colors">
-              {isOutputExpanded ? (
-                <ChevronDown className="w-3 h-3" />
-              ) : (
-                <ChevronUp className="w-3 h-3" />
-              )}
-            </span>
-          </div>
+          <Editor
+            height="100%"
+            language={language}
+            value={code}
+            onChange={(value) => setCode(value || "")}
+            theme="vs-dark"
+            onMount={handleEditorDidMount}
+            options={{
+              minimap: { enabled: true, scale: 0.8 },
+              fontSize: 14,
+              lineNumbers: "on",
+              automaticLayout: true,
+              scrollBeyondLastLine: false,
+              tabSize: 4,
+              wordWrap: "on",
+              formatOnPaste: true,
+              formatOnType: true,
+              bracketPairColorization: { enabled: true },
+              renderWhitespace: "selection",
+              cursorBlinking: "smooth",
+              smoothScrolling: true,
+              cursorSmoothCaretAnimation: "on",
+              fontFamily:
+                "'JetBrains Mono', 'Fira Code', 'Cascadia Code', monospace",
+              fontLigatures: true,
+              renderLineHighlight: "all",
+              lineHeight: 1.6,
+              padding: { top: 8, bottom: 8 },
+              suggest: {
+                showKeywords: true,
+                showSnippets: true,
+                showFunctions: true,
+                showConstructors: true,
+                showDeprecated: true,
+              },
+              quickSuggestions: true,
+              parameterHints: { enabled: true },
+              autoClosingBrackets: "always",
+              autoClosingQuotes: "always",
+              autoIndent: "full",
+              folding: true,
+              foldingStrategy: "indentation",
+              codeLens: true,
+            }}
+          />
         </div>
 
-        {/* Output Content */}
-        {isOutputExpanded && (
-          <div
-            ref={outputRef}
-            className="overflow-auto p-4 font-mono text-sm"
-            style={{ height: `calc(100% - 40px - 24px)` }}
-          >
-            {loading ? (
-              <div className="flex flex-col items-center justify-center h-full gap-3 text-gray-400">
-                <div className="relative">
-                  <div className="w-10 h-10 border-3 border-blue-500/30 border-t-blue-500 rounded-full animate-spin"></div>
-                  <div className="absolute inset-0 flex items-center justify-center">
-                    <div className="w-4 h-4 bg-blue-500 rounded-full animate-pulse"></div>
-                  </div>
-                </div>
-                <span className="text-sm font-medium">
-                  {loadingType === "run"
-                    ? "Running sample tests..."
-                    : "Submitting code for evaluation..."}
-                </span>
-                <span className="text-xs text-gray-500">
-                  This may take a few seconds
-                </span>
-              </div>
-            ) : (
-              <pre
-                className={`whitespace-pre-wrap break-words ${
-                  errorDetails ? "text-red-400" : "text-gray-300"
-                } leading-relaxed`}
-              >
-                {output ||
-                  '💡 Write code and click "Run" to test, or "Submit" for full evaluation'}
-              </pre>
-            )}
+        {/* ✅ Professional Splitter Handle */}
+        <div
+          ref={splitterRef}
+          className={`flex items-center justify-center h-2.5 bg-gray-800 hover:bg-gray-700 cursor-ns-resize transition-all duration-200 group flex-shrink-0 relative ${
+            isDraggingSplit ? "bg-blue-600" : ""
+          }`}
+          onMouseDown={handleSplitterMouseDown}
+          onTouchStart={handleSplitterTouchStart}
+        >
+          {/* Decorative line */}
+          <div className="flex items-center gap-2 px-2">
+            <div className="h-px w-6 bg-gray-600 group-hover:bg-gray-400 transition-colors"></div>
+            <GripHorizontal
+              className={`w-4 h-4 text-gray-500 group-hover:text-gray-300 transition-colors ${isDraggingSplit ? "text-white" : ""}`}
+            />
+            <div className="h-px w-6 bg-gray-600 group-hover:bg-gray-400 transition-colors"></div>
           </div>
-        )}
+
+          {/* Glow effects */}
+          <div
+            className={`absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-gray-500 to-transparent opacity-0 group-hover:opacity-50 transition-opacity ${isDraggingSplit ? "opacity-100 via-blue-400" : ""}`}
+          ></div>
+          <div
+            className={`absolute inset-x-0 bottom-0 h-px bg-gradient-to-r from-transparent via-gray-500 to-transparent opacity-0 group-hover:opacity-50 transition-opacity ${isDraggingSplit ? "opacity-100 via-blue-400" : ""}`}
+          ></div>
+
+          {isDraggingSplit && (
+            <div className="absolute inset-0 bg-blue-500/10 border-y border-blue-500/30"></div>
+          )}
+        </div>
+
+        {/* Output Area */}
+        <div
+          className={`bg-gray-900 border-t border-gray-700 overflow-hidden flex-shrink-0 ${
+            isOutputExpanded ? "" : "h-10"
+          }`}
+          style={{
+            flex: `0 0 ${100 - splitRatio}%`,
+            minHeight: isOutputExpanded ? "60px" : "40px",
+          }}
+        >
+          {/* Output Header */}
+          <div
+            className="flex items-center justify-between px-4 py-2 bg-gradient-to-r from-gray-800 to-gray-850 border-b border-gray-700 cursor-pointer hover:from-gray-750 hover:to-gray-800 transition-all duration-200 h-10 flex-shrink-0 group"
+            onClick={() => setIsOutputExpanded(!isOutputExpanded)}
+          >
+            <div className="flex items-center gap-3 overflow-hidden">
+              <div className="flex items-center gap-2">
+                <Terminal className="w-3.5 h-3.5 text-gray-400" />
+                <span className="text-gray-300 font-medium text-sm whitespace-nowrap">
+                  Output
+                </span>
+                {isOutputExpanded && (
+                  <span className="text-[10px] text-gray-500 hidden lg:inline ml-1">
+                    (Drag handle above to resize)
+                  </span>
+                )}
+              </div>
+              {loading && (
+                <div className="flex items-center gap-2">
+                  <Loader2 className="w-3 h-3 text-blue-400 animate-spin" />
+                  <span className="text-blue-400 text-xs">
+                    {loadingType === "run" ? "Running..." : "Submitting..."}
+                  </span>
+                </div>
+              )}
+              {!loading && testResults.length > 0 && (
+                <div className="flex gap-2 text-sm">
+                  <span className="text-green-400 whitespace-nowrap flex items-center gap-1">
+                    <CheckCircle className="w-3 h-3" />
+                    {testResults.filter((t) => t.passed).length}
+                  </span>
+                  <span className="text-red-400 whitespace-nowrap flex items-center gap-1">
+                    <XCircle className="w-3 h-3" />
+                    {testResults.filter((t) => !t.passed).length}
+                  </span>
+                  <span className="text-gray-500 whitespace-nowrap">
+                    ({passedCount}/{totalCount})
+                  </span>
+                </div>
+              )}
+              {errorDetails && (
+                <span className="text-red-400 text-xs whitespace-nowrap flex items-center gap-1">
+                  <AlertCircle className="w-3 h-3" />
+                  Error
+                </span>
+              )}
+              {isSaved && (
+                <span className="text-green-400 text-xs whitespace-nowrap flex items-center gap-1">
+                  <CheckCircle className="w-3 h-3" />
+                  Saved
+                </span>
+              )}
+            </div>
+            <div className="flex items-center gap-2 flex-shrink-0">
+              <span className="text-gray-500 text-xs group-hover:text-gray-400 transition-colors">
+                {isOutputExpanded ? (
+                  <ChevronDown className="w-3 h-3" />
+                ) : (
+                  <ChevronUp className="w-3 h-3" />
+                )}
+              </span>
+            </div>
+          </div>
+
+          {/* Output Content */}
+          {isOutputExpanded && (
+            <div
+              ref={outputRef}
+              className="overflow-auto p-4 font-mono text-sm"
+              style={{ height: `calc(100% - 40px)` }}
+            >
+              {loading ? (
+                <div className="flex flex-col items-center justify-center h-full gap-3 text-gray-400">
+                  <div className="relative">
+                    <div className="w-10 h-10 border-3 border-blue-500/30 border-t-blue-500 rounded-full animate-spin"></div>
+                    <div className="absolute inset-0 flex items-center justify-center">
+                      <div className="w-4 h-4 bg-blue-500 rounded-full animate-pulse"></div>
+                    </div>
+                  </div>
+                  <span className="text-sm font-medium">
+                    {loadingType === "run"
+                      ? "Running sample tests..."
+                      : "Submitting code for evaluation..."}
+                  </span>
+                  <span className="text-xs text-gray-500">
+                    This may take a few seconds
+                  </span>
+                </div>
+              ) : (
+                <pre
+                  className={`whitespace-pre-wrap break-words ${
+                    errorDetails ? "text-red-400" : "text-gray-300"
+                  } leading-relaxed`}
+                >
+                  {output ||
+                    '💡 Write code and click "Run" to test, or "Submit" for full evaluation'}
+                </pre>
+              )}
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );

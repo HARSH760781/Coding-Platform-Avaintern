@@ -1,3 +1,5 @@
+// frontend/src/pages/ProblemsList.jsx
+
 import React, { useState, useEffect } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { getProblems } from "../services/api";
@@ -5,7 +7,6 @@ import toast from "react-hot-toast";
 import {
   Code2,
   ChevronRight,
-  Brain,
   CheckCircle2,
   Circle,
   Zap,
@@ -24,6 +25,8 @@ import {
   X,
   Loader2,
   Send,
+  Trophy,
+  BarChart3,
 } from "lucide-react";
 
 // ✅ Utility: Get user ID
@@ -35,7 +38,13 @@ const ProblemsList = () => {
   const [search, setSearch] = useState("");
   const [difficulty, setDifficulty] = useState("All");
   const [solvedProblems, setSolvedProblems] = useState([]);
-  const [stats, setStats] = useState({ total: 0, easy: 0, medium: 0, hard: 0 });
+  const [stats, setStats] = useState({
+    total: 0,
+    easy: 0,
+    medium: 0,
+    hard: 0,
+    solvedCount: 0,
+  });
   const [hoveredProblem, setHoveredProblem] = useState(null);
   const [isAdmin, setIsAdmin] = useState(false);
   const [authChecked, setAuthChecked] = useState(false);
@@ -51,6 +60,7 @@ const ProblemsList = () => {
   const [testId, setTestId] = useState(null);
   const [testDuration, setTestDuration] = useState(0);
   const [isTestEnded, setIsTestEnded] = useState(false);
+  const [isInitialLoad, setIsInitialLoad] = useState(true);
 
   const navigate = useNavigate();
   const serverURL = import.meta.env.VITE_API_URL || "";
@@ -58,167 +68,58 @@ const ProblemsList = () => {
   // ✅ Main app URL
   const MAIN_APP_URL = "https://avainternlms.in";
 
-  // ✅ Initial load effect
-  useEffect(() => {
-    const urlParams = new URLSearchParams(window.location.search);
-    const urlTestId = urlParams.get("testId");
-    const storedTestId = localStorage.getItem("currentTestId");
-    const finalTestId = urlTestId || storedTestId;
+  // ============================================
+  // ✅ ALL FUNCTIONS DEFINED FIRST
+  // ============================================
 
-    if (finalTestId) {
-      setTestId(finalTestId);
-      setIsTestMode(true);
-      localStorage.setItem("currentTestId", finalTestId);
+  // ✅ Format time remaining
+  const formatTime = (ms) => {
+    if (!ms || ms <= 0) return "00:00:00";
+    const totalSeconds = Math.floor(ms / 1000);
+    const hours = Math.floor(totalSeconds / 3600);
+    const minutes = Math.floor((totalSeconds % 3600) / 60);
+    const seconds = totalSeconds % 60;
+    const pad = (num) => String(num).padStart(2, "0");
+    if (hours > 0) {
+      return `${pad(hours)}:${pad(minutes)}:${pad(seconds)}`;
     }
+    return `${pad(minutes)}:${pad(seconds)}`;
+  };
 
-    const checkAdminStatus = () => {
-      try {
-        const role = localStorage.getItem("role");
-        const isAdminUser = role === "admin";
-        setIsAdmin(isAdminUser);
-        setAuthChecked(true);
-      } catch (error) {
-        console.error("Error checking admin status:", error);
-        setIsAdmin(false);
-        setAuthChecked(true);
-      }
-    };
-
-    checkAdminStatus();
-    fetchProblems();
-    checkSolvedProblems();
-
-    if (finalTestId) {
-      checkTestAttempt(finalTestId);
-      startTestTimer(finalTestId);
-    }
-
-    const handleStorageChange = (e) => {
-      if (e.key === "role" || e.key === "user" || e.key === "token") {
-        checkAdminStatus();
-      }
-      if (e.key === "currentTestId") {
-        const newTestId = localStorage.getItem("currentTestId");
-        if (newTestId) {
-          setTestId(newTestId);
-          setIsTestMode(true);
-          checkTestAttempt(newTestId);
-          startTestTimer(newTestId);
-          checkSolvedProblems();
-        }
-      }
-    };
-    window.addEventListener("storage", handleStorageChange);
-
-    const handleMessage = (event) => {
-      const allowedOrigins = [
-        "https://avainternlms.in",
-        "http://localhost:5173",
-        "http://localhost:3000",
-        "https://coding-platform-avaintern-1.onrender.com",
-      ];
-
-      if (!allowedOrigins.includes(event.origin)) {
-        return;
-      }
-
-      if (event.data?.type === "USER_AUTH_DATA") {
-        const { role, testId: receivedTestId } = event.data.data;
-        if (role === "admin") {
-          setIsAdmin(true);
-          localStorage.setItem("role", "admin");
-        } else {
-          setIsAdmin(false);
-          localStorage.setItem("role", "user");
-        }
-        if (receivedTestId) {
-          setTestId(receivedTestId);
-          setIsTestMode(true);
-          localStorage.setItem("currentTestId", receivedTestId);
-          checkTestAttempt(receivedTestId);
-          startTestTimer(receivedTestId);
-          checkSolvedProblems();
-        }
-        setAuthChecked(true);
-      }
-    };
-    window.addEventListener("message", handleMessage);
-
-    return () => {
-      window.removeEventListener("storage", handleStorageChange);
-      window.removeEventListener("message", handleMessage);
-      if (testTimer) clearInterval(testTimer);
-    };
-  }, []);
-
-  // ✅ Refresh event listener - runs once on mount
-  useEffect(() => {
-    const handleTestRefresh = () => {
-      const currentTestId = localStorage.getItem("currentTestId");
-      if (currentTestId) {
-        console.log("🔄 ProblemsList - Test refresh event received!");
-        setTestId(currentTestId);
-        setIsTestMode(true);
-        checkTestAttempt(currentTestId);
-        startTestTimer(currentTestId);
-        checkSolvedProblems();
-        fetchProblems();
-      }
-    };
-
-    window.addEventListener("refreshTestAttempt", handleTestRefresh);
-
-    return () => {
-      window.removeEventListener("refreshTestAttempt", handleTestRefresh);
-    };
-  }, []); // ✅ Empty dependency array - runs once
-
-  const fetchProblems = async () => {
+  // ✅ Redirect to Main App and Close Current Tab
+  const redirectToMainAppAndClose = () => {
     try {
-      const response = await getProblems();
-      const problemsData = response.data.problems || [];
-      setProblems(problemsData);
+      localStorage.removeItem("currentTestId");
+      localStorage.removeItem("testId");
+      localStorage.removeItem("testTitle");
+      localStorage.removeItem("currentTestTitle");
+      clearTestSolvedProblems();
 
-      const easy = problemsData.filter((p) => p.difficulty === "Easy").length;
-      const medium = problemsData.filter(
-        (p) => p.difficulty === "Medium",
-      ).length;
-      const hard = problemsData.filter((p) => p.difficulty === "Hard").length;
-      setStats({ total: problemsData.length, easy, medium, hard });
+      if (window.opener) {
+        window.opener.postMessage(
+          {
+            type: "TEST_COMPLETED",
+            data: {
+              testId: testId,
+              status: "completed",
+              timestamp: new Date().toISOString(),
+            },
+          },
+          MAIN_APP_URL,
+        );
+      }
+
+      window.location.href = MAIN_APP_URL;
+      setTimeout(() => {
+        window.close();
+      }, 500);
     } catch (error) {
-      console.error("Error fetching problems:", error);
-      toast.error("Failed to load problems");
-    } finally {
-      setLoading(false);
+      console.error("❌ Error redirecting:", error);
+      navigate("/problems");
     }
   };
 
-  // ✅ Updated: Load test-specific solved problems
-  const checkSolvedProblems = () => {
-    const userId = getUserId();
-    const currentTestId = localStorage.getItem("currentTestId");
-
-    if (isTestMode && currentTestId) {
-      // ✅ Test-specific solved problems
-      const key = `user_${userId}_solvedProblems_${currentTestId}`;
-      const testSolved = JSON.parse(localStorage.getItem(key) || "[]");
-      setTestSolvedProblems(testSolved);
-      setSolvedProblems(testSolved);
-    } else {
-      // ✅ Global solved (for practice mode)
-      const key = `user_${userId}_solvedProblems_global`;
-      const solved = JSON.parse(localStorage.getItem(key) || "[]");
-      setSolvedProblems(solved);
-      setTestSolvedProblems([]);
-    }
-  };
-
-  const refreshTestAttempt = async () => {
-    if (testId) {
-      await checkTestAttempt(testId);
-    }
-  };
-
+  // ✅ Clear test solved problems
   const clearTestSolvedProblems = () => {
     const userId = getUserId();
     const currentTestId = localStorage.getItem("currentTestId");
@@ -230,7 +131,74 @@ const ProblemsList = () => {
     }
   };
 
-  // ✅ Updated: Check test attempt with user isolation
+  // ✅ Confirm submission
+  const confirmSubmit = async (isAuto = false) => {
+    try {
+      setSubmitting(true);
+      const token = localStorage.getItem("token");
+
+      const response = await fetch(`${serverURL}/coding/submit-test`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ testId }),
+      });
+
+      const data = await response.json();
+
+      if (data.success) {
+        toast.success(
+          isAuto
+            ? "⏰ Test auto-submitted successfully! Closing..."
+            : "✅ Test submitted successfully! Closing...",
+        );
+        setShowSubmitModal(false);
+        if (testTimer) clearInterval(testTimer);
+        setIsTestEnded(true);
+        clearTestSolvedProblems();
+
+        setTimeout(() => {
+          redirectToMainAppAndClose();
+        }, 2000);
+      } else {
+        toast.error(data.error || "Failed to submit test");
+        setShowSubmitModal(false);
+      }
+    } catch (error) {
+      console.error("Error submitting test:", error);
+      toast.error("Failed to submit test");
+      setShowSubmitModal(false);
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  // ✅ Handle test submission
+  const handleSubmitTest = async (isAuto = false) => {
+    if (submitting) return;
+
+    if (
+      testAttempt?.status === "submitted" ||
+      testAttempt?.status === "completed"
+    ) {
+      toast.info("Test has already been submitted");
+      return;
+    }
+
+    if (testAttempt?.status === "in_progress") {
+      if (isAuto) {
+        await confirmSubmit(true);
+        return;
+      }
+      setShowSubmitModal(true);
+    } else {
+      toast.error("Test is not in progress");
+    }
+  };
+
+  // ✅ Check test attempt with user isolation
   const checkTestAttempt = async (testId) => {
     try {
       const token = localStorage.getItem("token");
@@ -320,120 +288,77 @@ const ProblemsList = () => {
     }
   };
 
-  // ✅ Format time remaining
-  const formatTime = (ms) => {
-    if (!ms || ms <= 0) return "00:00:00";
-    const totalSeconds = Math.floor(ms / 1000);
-    const hours = Math.floor(totalSeconds / 3600);
-    const minutes = Math.floor((totalSeconds % 3600) / 60);
-    const seconds = totalSeconds % 60;
-    const pad = (num) => String(num).padStart(2, "0");
-    if (hours > 0) {
-      return `${pad(hours)}:${pad(minutes)}:${pad(seconds)}`;
-    }
-    return `${pad(minutes)}:${pad(seconds)}`;
-  };
-
-  // ✅ Redirect to Main App and Close Current Tab
-  const redirectToMainAppAndClose = () => {
+  // ✅ Fetch problems
+  const fetchProblems = async () => {
     try {
-      localStorage.removeItem("currentTestId");
-      localStorage.removeItem("testId");
-      localStorage.removeItem("testTitle");
-      localStorage.removeItem("currentTestTitle");
-      clearTestSolvedProblems();
+      const response = await getProblems();
+      const problemsData = response.data.problems || [];
+      setProblems(problemsData);
 
-      if (window.opener) {
-        window.opener.postMessage(
-          {
-            type: "TEST_COMPLETED",
-            data: {
-              testId: testId,
-              status: "completed",
-              timestamp: new Date().toISOString(),
-            },
-          },
-          MAIN_APP_URL,
-        );
-      }
-
-      window.location.href = MAIN_APP_URL;
-      setTimeout(() => {
-        window.close();
-      }, 500);
-    } catch (error) {
-      console.error("❌ Error redirecting:", error);
-      navigate("/problems");
-    }
-  };
-
-  // ✅ Handle test submission
-  const handleSubmitTest = async (isAuto = false) => {
-    if (submitting) return;
-
-    if (
-      testAttempt?.status === "submitted" ||
-      testAttempt?.status === "completed"
-    ) {
-      toast.info("Test has already been submitted");
-      return;
-    }
-
-    if (testAttempt?.status === "in_progress") {
-      if (isAuto) {
-        await confirmSubmit(true);
-        return;
-      }
-      setShowSubmitModal(true);
-    } else {
-      toast.error("Test is not in progress");
-    }
-  };
-
-  // ✅ Confirm submission
-  const confirmSubmit = async (isAuto = false) => {
-    try {
-      setSubmitting(true);
-      const token = localStorage.getItem("token");
-
-      const response = await fetch(`${serverURL}/coding/submit-test`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({ testId }),
+      const easy = problemsData.filter((p) => p.difficulty === "Easy").length;
+      const medium = problemsData.filter(
+        (p) => p.difficulty === "Medium",
+      ).length;
+      const hard = problemsData.filter((p) => p.difficulty === "Hard").length;
+      setStats({
+        total: problemsData.length,
+        easy,
+        medium,
+        hard,
+        solvedCount: 0,
       });
-
-      const data = await response.json();
-
-      if (data.success) {
-        toast.success(
-          isAuto
-            ? "⏰ Test auto-submitted successfully! Closing..."
-            : "✅ Test submitted successfully! Closing...",
-        );
-        setShowSubmitModal(false);
-        if (testTimer) clearInterval(testTimer);
-        setIsTestEnded(true);
-        clearTestSolvedProblems();
-
-        setTimeout(() => {
-          redirectToMainAppAndClose();
-        }, 2000);
-      } else {
-        toast.error(data.error || "Failed to submit test");
-        setShowSubmitModal(false);
-      }
     } catch (error) {
-      console.error("Error submitting test:", error);
-      toast.error("Failed to submit test");
-      setShowSubmitModal(false);
+      console.error("Error fetching problems:", error);
+      toast.error("Failed to load problems");
     } finally {
-      setSubmitting(false);
+      setLoading(false);
     }
   };
 
+  // ✅ Load test-specific solved problems
+  const checkSolvedProblems = (testIdOverride = null) => {
+    const userId = getUserId();
+    // Use the override if provided, otherwise get from localStorage
+    const currentTestId =
+      testIdOverride || localStorage.getItem("currentTestId");
+
+    let solved = [];
+    if (currentTestId) {
+      // ✅ Test-specific solved problems
+      const key = `user_${userId}_solvedProblems_${currentTestId}`;
+      solved = JSON.parse(localStorage.getItem(key) || "[]");
+      setTestSolvedProblems(solved);
+      setSolvedProblems(solved);
+    } else {
+      // ✅ Global solved (for practice mode)
+      const key = `user_${userId}_solvedProblems_global`;
+      solved = JSON.parse(localStorage.getItem(key) || "[]");
+      setSolvedProblems(solved);
+      setTestSolvedProblems([]);
+    }
+
+    // ✅ Update stats with solved count
+    setStats((prev) => ({
+      ...prev,
+      solvedCount: solved.length,
+    }));
+  };
+
+  // ✅ Get problem stats
+  const getProblemStats = (problem) => {
+    const isSolved = solvedProblems.includes(problem.problemId);
+    const acceptanceRate = problem.acceptanceRate || 0;
+    const submissions = problem.totalSubmissions || 0;
+    return { isSolved, acceptanceRate, submissions };
+  };
+
+  // ✅ Get progress percentage
+  const getProgressPercentage = () => {
+    if (stats.total === 0) return 0;
+    return Math.round((solvedProblems.length / stats.total) * 100);
+  };
+
+  // ✅ Get difficulty styles
   const getDifficultyStyles = (difficulty) => {
     switch (difficulty) {
       case "Easy":
@@ -443,6 +368,7 @@ const ProblemsList = () => {
           border: "border-emerald-200",
           dot: "bg-emerald-500",
           glow: "shadow-emerald-100",
+          icon: <Zap className="w-3 h-3 text-emerald-500" />,
         };
       case "Medium":
         return {
@@ -451,6 +377,7 @@ const ProblemsList = () => {
           border: "border-amber-200",
           dot: "bg-amber-500",
           glow: "shadow-amber-100",
+          icon: <Flame className="w-3 h-3 text-amber-500" />,
         };
       case "Hard":
         return {
@@ -459,6 +386,7 @@ const ProblemsList = () => {
           border: "border-rose-200",
           dot: "bg-rose-500",
           glow: "shadow-rose-100",
+          icon: <Award className="w-3 h-3 text-rose-500" />,
         };
       default:
         return {
@@ -467,23 +395,12 @@ const ProblemsList = () => {
           border: "border-gray-200",
           dot: "bg-gray-500",
           glow: "shadow-gray-100",
+          icon: <Circle className="w-3 h-3 text-gray-400" />,
         };
     }
   };
 
-  const getDifficultyIcon = (difficulty) => {
-    switch (difficulty) {
-      case "Easy":
-        return <Zap className="w-3 h-3 text-emerald-500" />;
-      case "Medium":
-        return <Flame className="w-3 h-3 text-amber-500" />;
-      case "Hard":
-        return <Award className="w-3 h-3 text-rose-500" />;
-      default:
-        return <Circle className="w-3 h-3 text-gray-400" />;
-    }
-  };
-
+  // ✅ Calculate success rate
   const calculateSuccessRate = () => {
     if (problems.length === 0) return 0;
     const totalAcceptance = problems.reduce(
@@ -495,6 +412,141 @@ const ProblemsList = () => {
 
   // ✅ Get solutions count
   const solutionsCount = testAttempt?.solutions?.length || 0;
+
+  // ============================================
+  // ✅ useEffect HOOKS (Now functions are defined)
+  // ============================================
+
+  // ✅ Initial load effect
+  useEffect(() => {
+    const urlParams = new URLSearchParams(window.location.search);
+    const urlTestId = urlParams.get("testId");
+    const storedTestId = localStorage.getItem("currentTestId");
+    const finalTestId = urlTestId || storedTestId;
+
+    if (finalTestId) {
+      setTestId(finalTestId);
+      setIsTestMode(true);
+      localStorage.setItem("currentTestId", finalTestId);
+    }
+
+    const checkAdminStatus = () => {
+      try {
+        const role = localStorage.getItem("role");
+        const isAdminUser = role === "admin";
+        setIsAdmin(isAdminUser);
+        setAuthChecked(true);
+      } catch (error) {
+        console.error("Error checking admin status:", error);
+        setIsAdmin(false);
+        setAuthChecked(true);
+      }
+    };
+
+    checkAdminStatus();
+    fetchProblems();
+    // ✅ Pass the testId if it exists
+    checkSolvedProblems(finalTestId);
+
+    if (finalTestId) {
+      checkTestAttempt(finalTestId);
+      startTestTimer(finalTestId);
+    }
+
+    const handleStorageChange = (e) => {
+      if (e.key === "role" || e.key === "user" || e.key === "token") {
+        checkAdminStatus();
+      }
+      if (e.key === "currentTestId") {
+        const newTestId = localStorage.getItem("currentTestId");
+        if (newTestId) {
+          setTestId(newTestId);
+          setIsTestMode(true);
+          checkTestAttempt(newTestId);
+          startTestTimer(newTestId);
+          // ✅ Pass the testId
+          checkSolvedProblems(newTestId);
+        }
+      }
+      // ✅ Also listen for solved problems changes
+      if (e.key && e.key.includes("_solvedProblems_")) {
+        console.log(
+          "🔄 ProblemsList - Solved problems updated in localStorage",
+        );
+        const currentTestId = localStorage.getItem("currentTestId");
+        checkSolvedProblems(currentTestId);
+      }
+    };
+    window.addEventListener("storage", handleStorageChange);
+
+    const handleMessage = (event) => {
+      const allowedOrigins = [
+        "https://avainternlms.in",
+        "http://localhost:5173",
+        "http://localhost:3000",
+        "https://coding-platform-avaintern-1.onrender.com",
+      ];
+
+      if (!allowedOrigins.includes(event.origin)) {
+        return;
+      }
+
+      if (event.data?.type === "USER_AUTH_DATA") {
+        const { role, testId: receivedTestId } = event.data.data;
+        if (role === "admin") {
+          setIsAdmin(true);
+          localStorage.setItem("role", "admin");
+        } else {
+          setIsAdmin(false);
+          localStorage.setItem("role", "user");
+        }
+        if (receivedTestId) {
+          setTestId(receivedTestId);
+          setIsTestMode(true);
+          localStorage.setItem("currentTestId", receivedTestId);
+          checkTestAttempt(receivedTestId);
+          startTestTimer(receivedTestId);
+          checkSolvedProblems();
+        }
+        setAuthChecked(true);
+      }
+    };
+    window.addEventListener("message", handleMessage);
+
+    return () => {
+      window.removeEventListener("storage", handleStorageChange);
+      window.removeEventListener("message", handleMessage);
+      if (testTimer) clearInterval(testTimer);
+    };
+  }, []);
+
+  // ✅ Refresh event listener
+  useEffect(() => {
+    const handleTestRefresh = () => {
+      const currentTestId = localStorage.getItem("currentTestId");
+      if (currentTestId) {
+        console.log("🔄 ProblemsList - Test refresh event received!");
+        setTestId(currentTestId);
+        setIsTestMode(true);
+        setIsInitialLoad(false);
+        checkTestAttempt(currentTestId);
+        startTestTimer(currentTestId);
+        // ✅ Pass the testId directly to ensure correct loading
+        checkSolvedProblems(currentTestId);
+        fetchProblems();
+      }
+    };
+
+    window.addEventListener("refreshTestAttempt", handleTestRefresh);
+
+    return () => {
+      window.removeEventListener("refreshTestAttempt", handleTestRefresh);
+    };
+  }, []);
+
+  // ============================================
+  // ✅ RENDER
+  // ============================================
 
   if (loading) {
     return (
@@ -523,9 +575,61 @@ const ProblemsList = () => {
     return matchesSearch && matchesDifficulty;
   });
 
+  const progressPercentage = getProgressPercentage();
+
   return (
     <div className="min-h-screen bg-gray-50">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-6">
+        {/* ============================================ */}
+        {/* ✅ PROFESSIONAL HEADER WITH STATS */}
+        {/* ============================================ */}
+        <div className="mb-6">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+            <div>
+              <h1 className="text-2xl sm:text-3xl font-bold text-gray-900 flex items-center gap-2">
+                <Code2 className="w-7 h-7 text-indigo-600" />
+                Problems
+                {isTestMode && (
+                  <span className="ml-2 text-sm font-medium text-purple-600 bg-purple-50 px-3 py-1 rounded-full border border-purple-200">
+                    📝 Test Mode
+                  </span>
+                )}
+              </h1>
+              <p className="text-sm text-gray-500 mt-1">
+                {filteredProblems.length} problems • {solvedProblems.length}{" "}
+                solved
+              </p>
+            </div>
+
+            {/* ✅ Progress Stats */}
+            <div className="flex items-center gap-4 bg-white rounded-xl px-4 py-2 border border-gray-200 shadow-sm">
+              <div className="flex items-center gap-2">
+                <Trophy className="w-4 h-4 text-amber-500" />
+                <span className="text-sm font-medium text-gray-700">
+                  {solvedProblems.length}
+                </span>
+                <span className="text-xs text-gray-400">/ {stats.total}</span>
+              </div>
+              <div className="w-px h-6 bg-gray-200"></div>
+              <div className="flex items-center gap-2">
+                <BarChart3 className="w-4 h-4 text-indigo-500" />
+                <span className="text-sm font-medium text-gray-700">
+                  {progressPercentage}%
+                </span>
+                <span className="text-xs text-gray-400">completed</span>
+              </div>
+            </div>
+          </div>
+
+          {/* ✅ Progress Bar */}
+          <div className="mt-3 w-full h-2 bg-gray-200 rounded-full overflow-hidden">
+            <div
+              className="h-full bg-gradient-to-r from-indigo-500 to-purple-500 rounded-full transition-all duration-500"
+              style={{ width: `${progressPercentage}%` }}
+            />
+          </div>
+        </div>
+
         {/* Test Mode Banner */}
         {isTestMode && testAttempt?.status === "in_progress" && (
           <div className="mb-4 p-3 bg-gradient-to-r from-purple-50 to-indigo-50 rounded-xl border border-purple-200 flex items-center justify-between flex-wrap gap-2">
@@ -547,7 +651,7 @@ const ProblemsList = () => {
               </div>
 
               {/* ✅ Submit Button - Always Enabled */}
-              <button
+              {/* <button
                 onClick={() => handleSubmitTest(false)}
                 disabled={submitting}
                 className="px-4 py-1.5 rounded-lg text-sm font-medium transition-all duration-300 bg-gradient-to-r from-emerald-600 to-green-600 text-white hover:shadow-lg hover:shadow-emerald-500/25 hover:scale-[1.02] flex items-center gap-2"
@@ -563,7 +667,7 @@ const ProblemsList = () => {
                     Submit Test
                   </>
                 )}
-              </button>
+              </button> */}
             </div>
           </div>
         )}
@@ -579,7 +683,7 @@ const ProblemsList = () => {
         )}
 
         {/* Stats Cards */}
-        <div className="grid grid-cols-2 md:grid-cols-3 gap-3 mb-4 sm:mb-6">
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4 sm:mb-6">
           <div className="bg-white rounded-xl border border-gray-200 p-3 sm:p-4 shadow-sm hover:shadow-md transition-all">
             <div className="flex items-center justify-between">
               <div>
@@ -593,12 +697,6 @@ const ProblemsList = () => {
               <div className="w-8 h-8 sm:w-10 sm:h-10 bg-indigo-50 rounded-xl flex items-center justify-center">
                 <Code2 className="w-4 h-4 sm:w-5 sm:h-5 text-indigo-600" />
               </div>
-            </div>
-            <div className="mt-1 sm:mt-2 flex items-center gap-1">
-              <TrendingUp className="w-3 h-3 text-emerald-500" />
-              <span className="text-[10px] sm:text-xs text-gray-500">
-                Active problems
-              </span>
             </div>
           </div>
 
@@ -616,22 +714,19 @@ const ProblemsList = () => {
                 <CheckCircle2 className="w-4 h-4 sm:w-5 sm:h-5 text-emerald-600" />
               </div>
             </div>
-            <div className="mt-1 sm:mt-2 flex items-center gap-1">
+            <div className="mt-1 flex items-center gap-1">
               <Target className="w-3 h-3 text-emerald-500" />
-              <span className="text-[10px] sm:text-xs text-gray-500">
-                {stats.total > 0
-                  ? Math.round((solvedProblems.length / stats.total) * 100)
-                  : 0}
-                % completion
+              <span className="text-[10px] text-gray-500">
+                {progressPercentage}% complete
               </span>
             </div>
           </div>
 
-          <div className="bg-white rounded-xl border border-gray-200 p-3 sm:p-4 shadow-sm hover:shadow-md transition-all col-span-2 md:col-span-1">
+          <div className="bg-white rounded-xl border border-gray-200 p-3 sm:p-4 shadow-sm hover:shadow-md transition-all">
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-gray-400 text-[10px] sm:text-xs font-medium uppercase tracking-wider">
-                  Success Rate
+                  Acceptance
                 </p>
                 <p className="text-xl sm:text-2xl font-bold text-gray-800 mt-0.5">
                   {calculateSuccessRate()}%
@@ -641,11 +736,21 @@ const ProblemsList = () => {
                 <Medal className="w-4 h-4 sm:w-5 sm:h-5 text-amber-600" />
               </div>
             </div>
-            <div className="mt-1 sm:mt-2 flex items-center gap-1">
-              <Star className="w-3 h-3 text-amber-500" />
-              <span className="text-[10px] sm:text-xs text-gray-500">
-                Average acceptance
-              </span>
+          </div>
+
+          <div className="bg-white rounded-xl border border-gray-200 p-3 sm:p-4 shadow-sm hover:shadow-md transition-all">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-gray-400 text-[10px] sm:text-xs font-medium uppercase tracking-wider">
+                  Remaining
+                </p>
+                <p className="text-xl sm:text-2xl font-bold text-gray-800 mt-0.5">
+                  {stats.total - solvedProblems.length}
+                </p>
+              </div>
+              <div className="w-8 h-8 sm:w-10 sm:h-10 bg-gray-100 rounded-xl flex items-center justify-center">
+                <Clock className="w-4 h-4 sm:w-5 sm:h-5 text-gray-500" />
+              </div>
             </div>
           </div>
         </div>
@@ -679,29 +784,45 @@ const ProblemsList = () => {
         {/* Problems List */}
         <div className="space-y-2 sm:space-y-3">
           {filteredProblems.map((problem, idx) => {
-            const isSolved = solvedProblems.includes(problem.problemId);
+            const { isSolved, acceptanceRate, submissions } =
+              getProblemStats(problem);
             const difficultyStyle = getDifficultyStyles(problem.difficulty);
             const isHovered = hoveredProblem === problem._id;
 
             return (
               <div
                 key={problem._id}
-                className={`group relative bg-white border border-gray-200 rounded-xl overflow-hidden transition-all duration-300 ${
-                  isHovered
-                    ? `shadow-lg ${difficultyStyle.glow}`
-                    : "shadow-sm hover:shadow-md"
-                }`}
+                className={`group relative bg-white border rounded-xl overflow-hidden transition-all duration-300 ${
+                  isSolved
+                    ? "border-emerald-200"
+                    : isHovered
+                      ? `border-indigo-300 shadow-lg ${difficultyStyle.glow}`
+                      : "border-gray-200 shadow-sm hover:shadow-md"
+                } ${isSolved ? "hover:shadow-md" : ""}`}
                 onMouseEnter={() => setHoveredProblem(problem._id)}
                 onMouseLeave={() => setHoveredProblem(null)}
               >
+                {/* ✅ Solved ribbon */}
+                {isSolved && (
+                  <div className="absolute top-0 right-0">
+                    <div className="bg-emerald-500 text-white text-[10px] font-bold px-3 py-0.5 rounded-bl-lg flex items-center gap-1">
+                      <CheckCircle2 className="w-3 h-3" />
+                      SOLVED
+                    </div>
+                  </div>
+                )}
+
                 <div className="p-3 sm:p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
                   <div className="flex items-start sm:items-center gap-3 sm:gap-4 flex-1 min-w-0">
+                    {/* Problem Number with Status */}
                     <div className="relative flex-shrink-0">
                       <div
                         className={`w-8 h-8 sm:w-10 sm:h-10 rounded-xl flex items-center justify-center font-mono text-xs sm:text-sm transition-all ${
-                          isHovered
-                            ? "bg-indigo-50 text-indigo-600 border border-indigo-200"
-                            : "bg-gray-50 text-gray-500 border border-gray-100"
+                          isSolved
+                            ? "bg-emerald-50 text-emerald-600 border border-emerald-200"
+                            : isHovered
+                              ? "bg-indigo-50 text-indigo-600 border border-indigo-200"
+                              : "bg-gray-50 text-gray-500 border border-gray-100"
                         }`}
                       >
                         {idx + 1}
@@ -713,18 +834,23 @@ const ProblemsList = () => {
                       )}
                     </div>
 
+                    {/* Problem Info */}
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2 flex-wrap">
                         <h3
-                          className={`text-sm sm:text-base font-semibold text-gray-800 transition-colors ${
-                            isHovered ? "text-indigo-700" : ""
+                          className={`text-sm sm:text-base font-semibold transition-colors ${
+                            isSolved
+                              ? "text-gray-600"
+                              : isHovered
+                                ? "text-indigo-700"
+                                : "text-gray-800"
                           } truncate max-w-[120px] xs:max-w-[200px] sm:max-w-none`}
                         >
                           {problem.title}
                         </h3>
                         {isSolved && (
                           <span className="flex items-center gap-1 px-1.5 sm:px-2 py-0.5 bg-emerald-50 text-emerald-600 text-[8px] sm:text-[10px] font-medium rounded-full border border-emerald-200 whitespace-nowrap">
-                            Solved
+                            ✅ Solved
                           </span>
                         )}
                         <span className="flex items-center gap-1 text-gray-400 text-[8px] sm:text-[10px] whitespace-nowrap">
@@ -751,27 +877,30 @@ const ProblemsList = () => {
                   </div>
 
                   <div className="flex items-center gap-2 w-full sm:w-auto justify-between sm:justify-end">
+                    {/* Difficulty Badge */}
                     <div
                       className={`flex items-center gap-1 px-2 sm:px-3 py-1 sm:py-1.5 ${difficultyStyle.bg} ${difficultyStyle.text} rounded-full border ${difficultyStyle.border}`}
                     >
-                      {getDifficultyIcon(problem.difficulty)}
+                      {difficultyStyle.icon}
                       <span className="text-[9px] sm:text-[11px] font-medium">
                         {problem.difficulty}
                       </span>
                     </div>
 
+                    {/* Acceptance Rate */}
                     <div className="hidden sm:flex items-center gap-1 text-gray-400 text-xs">
                       <TrendingUp className="w-3 h-3" />
                       <span className="font-mono">
-                        {problem.acceptanceRate?.toFixed(1) || 0}%
+                        {acceptanceRate.toFixed(1)}%
                       </span>
                     </div>
 
+                    {/* Solve/Review Button */}
                     <Link
                       to={`/problem/${problem.problemId}`}
                       className={`group/btn flex items-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-1.5 sm:py-2 rounded-xl font-medium text-xs sm:text-sm transition-all duration-300 ${
                         isSolved
-                          ? "bg-emerald-50 text-emerald-600 hover:bg-emerald-100 border border-emerald-200"
+                          ? "bg-gray-100 text-gray-600 hover:bg-gray-200 border border-gray-200"
                           : "bg-gradient-to-r from-indigo-600 to-purple-600 text-white hover:shadow-lg hover:shadow-indigo-500/25"
                       }`}
                     >
@@ -800,14 +929,14 @@ const ProblemsList = () => {
         </div>
 
         {filteredProblems.length === 0 && (
-          <div className="text-center py-8 sm:py-12 bg-white rounded-xl border border-gray-200">
-            <div className="w-12 h-12 sm:w-16 sm:h-16 mx-auto mb-3 sm:mb-4 bg-gray-50 rounded-full flex items-center justify-center border border-gray-200">
-              <Search className="w-6 h-6 sm:w-8 sm:h-8 text-gray-300" />
+          <div className="text-center py-12 sm:py-16 bg-white rounded-xl border border-gray-200">
+            <div className="w-16 h-16 mx-auto mb-4 bg-gray-50 rounded-full flex items-center justify-center border border-gray-200">
+              <Search className="w-8 h-8 text-gray-300" />
             </div>
-            <p className="text-gray-500 text-sm sm:text-base font-medium">
+            <p className="text-gray-500 text-base font-medium">
               No challenges found
             </p>
-            <p className="text-gray-400 text-xs sm:text-sm mt-1">
+            <p className="text-gray-400 text-sm mt-1">
               Try adjusting your search or filters
             </p>
           </div>
