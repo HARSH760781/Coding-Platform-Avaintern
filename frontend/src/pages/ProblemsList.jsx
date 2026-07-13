@@ -558,17 +558,68 @@ const ProblemsList = () => {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center min-h-screen bg-gray-50">
-        <div className="text-center">
+      <div className="flex items-center justify-center min-h-screen bg-gradient-to-br from-gray-50 via-white to-indigo-50/30">
+        <div className="text-center relative">
+          {/* Animated background glow */}
+          <div className="absolute -inset-20 bg-gradient-to-r from-indigo-500/10 via-purple-500/10 to-pink-500/10 rounded-full blur-3xl animate-pulse"></div>
+
+          {/* Main loader container */}
           <div className="relative">
-            <div className="w-16 h-16 border-4 border-indigo-200 border-t-indigo-600 rounded-full animate-spin"></div>
-            <div className="absolute inset-0 flex items-center justify-center">
-              <Code2 className="w-6 h-6 text-indigo-600 animate-pulse" />
+            {/* Outer rotating ring with gradient */}
+            <div className="w-20 h-20 mx-auto relative">
+              <div className="absolute inset-0 rounded-full border-4 border-transparent border-t-indigo-600 border-r-purple-500 animate-spin"></div>
+              <div
+                className="absolute inset-2 rounded-full border-4 border-transparent border-b-purple-500 border-l-indigo-400 animate-spin animation-delay-200"
+                style={{ animationDuration: "1.2s" }}
+              ></div>
+              <div
+                className="absolute inset-4 rounded-full border-4 border-transparent border-t-pink-400 border-r-indigo-300 animate-spin animation-delay-400"
+                style={{ animationDuration: "1.5s" }}
+              ></div>
+
+              {/* Center icon with pulse */}
+              <div className="absolute inset-0 flex items-center justify-center">
+                <div className="w-8 h-8 bg-gradient-to-br from-indigo-600 to-purple-600 rounded-xl flex items-center justify-center shadow-lg shadow-indigo-500/30 animate-pulse">
+                  <Code2 className="w-5 h-5 text-white" />
+                </div>
+              </div>
+            </div>
+
+            {/* Loading text with shimmer effect */}
+            <div className="mt-8 space-y-3">
+              <div className="relative inline-block">
+                <p className="text-lg font-semibold bg-gradient-to-r from-indigo-600 via-purple-600 to-indigo-600 bg-[length:200%_auto] text-transparent bg-clip-text animate-shimmer">
+                  Loading challenges...
+                </p>
+                <span className="absolute -inset-x-0 -inset-y-2 bg-gradient-to-r from-transparent via-white/20 to-transparent animate-shimmer"></span>
+              </div>
+
+              {/* Animated dots */}
+              <div className="flex items-center justify-center gap-2">
+                <div
+                  className="w-2 h-2 bg-indigo-500 rounded-full animate-bounce"
+                  style={{ animationDelay: "0ms" }}
+                ></div>
+                <div
+                  className="w-2 h-2 bg-purple-500 rounded-full animate-bounce"
+                  style={{ animationDelay: "150ms" }}
+                ></div>
+                <div
+                  className="w-2 h-2 bg-pink-500 rounded-full animate-bounce"
+                  style={{ animationDelay: "300ms" }}
+                ></div>
+                <div
+                  className="w-2 h-2 bg-indigo-400 rounded-full animate-bounce"
+                  style={{ animationDelay: "450ms" }}
+                ></div>
+              </div>
+
+              {/* Subtle hint text */}
+              <p className="text-xs text-gray-400 font-medium tracking-wide animate-pulse">
+                Preparing your coding arena...
+              </p>
             </div>
           </div>
-          <p className="text-gray-500 mt-6 font-medium">
-            Loading challenges...
-          </p>
         </div>
       </div>
     );
