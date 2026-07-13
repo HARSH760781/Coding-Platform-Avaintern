@@ -40,12 +40,12 @@ app.use(express.json());
 connectDB();
 
 // TEMPORARY: Bypass auth for all routes
-app.use((req, res, next) => {
-  // console.log(`📡 ${req.method} ${req.url}`);
-  req.user = { id: "test_user_123", role: "admin" };
-  req.userId = "test_user_123";
-  next();
-});
+// app.use((req, res, next) => {
+//   // console.log(`📡 ${req.method} ${req.url}`);
+//   req.user = { id: "test_user_123", role: "admin" };
+//   req.userId = "test_user_123";
+//   next();
+// });
 
 // ============================================
 // 📡 Routes

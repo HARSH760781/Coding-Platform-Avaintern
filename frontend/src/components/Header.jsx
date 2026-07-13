@@ -18,13 +18,17 @@ import {
 } from "lucide-react";
 import { getProblems } from "../services/api";
 import toast from "react-hot-toast";
+import { useRole } from "../hooks/useRole"; // ✅ Import the hook
 
 const Header = () => {
   const [problems, setProblems] = useState([]);
   const [solvedProblems, setSolvedProblems] = useState([]);
   const [stats, setStats] = useState({ total: 0, easy: 0, medium: 0, hard: 0 });
-  const [isAdmin, setIsAdmin] = useState(false);
+
+  // ✅ Use the hook instead of localStorage
+  const { isAdmin, loading: roleLoading } = useRole();
   const [authChecked, setAuthChecked] = useState(false);
+
   const [isTestMode, setIsTestMode] = useState(false);
   const [testId, setTestId] = useState(null);
   const [testAttempt, setTestAttempt] = useState(null);
@@ -50,7 +54,7 @@ const Header = () => {
     const init = async () => {
       await fetchProblems();
       checkSolvedProblems();
-      checkAdminStatus();
+      // ❌ REMOVED: checkAdminStatus(); - Now handled by useRole hook
 
       const urlParams = new URLSearchParams(window.location.search);
       const urlTestId = urlParams.get("testId");
@@ -98,6 +102,13 @@ const Header = () => {
     };
   }, []);
 
+  // ✅ Set authChecked when role loading completes
+  useEffect(() => {
+    if (!roleLoading) {
+      setAuthChecked(true);
+    }
+  }, [roleLoading]);
+
   // ✅ Update ref whenever testId changes
   useEffect(() => {
     testIdRef.current = testId;
@@ -125,21 +136,8 @@ const Header = () => {
     setSolvedProblems(solved);
   };
 
-  const checkAdminStatus = () => {
-    try {
-      const role = localStorage.getItem("role");
-      const userStr = localStorage.getItem("user");
-      const user = userStr ? JSON.parse(userStr) : {};
-      const isAdminUser =
-        role === "admin" || user?.role === "admin" || user?.isAdmin === true;
-      setIsAdmin(isAdminUser);
-      setAuthChecked(true);
-    } catch (error) {
-      console.error("Error checking admin status:", error);
-      setIsAdmin(false);
-      setAuthChecked(true);
-    }
-  };
+  // ❌ REMOVE this entire function - no longer needed
+  // const checkAdminStatus = () => { ... };
 
   // ✅ Redirect to Main App and Close Current Tab
   const redirectToMainAppAndClose = () => {
@@ -191,27 +189,19 @@ const Header = () => {
         // ✅ Get solutions from ALL possible locations
         let solutions = [];
 
-        // Check root level
         if (data.solutions && Array.isArray(data.solutions)) {
           solutions = data.solutions;
-        }
-        // Check inside attemptData
-        else if (
+        } else if (
           data.attemptData?.solutions &&
           Array.isArray(data.attemptData.solutions)
         ) {
           solutions = data.attemptData.solutions;
-        }
-        // Check inside data
-        else if (data.data?.solutions && Array.isArray(data.data.solutions)) {
+        } else if (data.data?.solutions && Array.isArray(data.data.solutions)) {
           solutions = data.data.solutions;
-        }
-        // If solutions is an object with problem IDs, convert to array
-        else if (data.solutions && typeof data.solutions === "object") {
+        } else if (data.solutions && typeof data.solutions === "object") {
           solutions = Object.values(data.solutions);
         }
 
-        // ✅ Get other data
         const passedCount =
           data.passedCount || data.attemptData?.totalSolved || 0;
         const totalProblems =
@@ -219,7 +209,6 @@ const Header = () => {
         const percentage = data.percentage || data.attemptData?.percentage || 0;
         const passed = data.passed || data.attemptData?.passed || false;
 
-        // ✅ Set testAttempt with all data
         const attemptData = {
           status: data.status || data.attemptStatus || "in_progress",
           solutions: solutions,
@@ -232,7 +221,6 @@ const Header = () => {
 
         setTestAttempt(attemptData);
 
-        // ✅ Only show toast if not redirecting and showToast is true
         if (
           showToast &&
           !isRedirecting &&
@@ -323,7 +311,7 @@ const Header = () => {
     setShowSubmitModal(true);
   };
 
-  // ✅ Confirm submission - UPDATED with immediate state update
+  // ✅ Confirm submission
   const confirmSubmit = async (isAuto = false) => {
     if (!testId) {
       console.error("❌ Header - No testId available!");
@@ -350,7 +338,6 @@ const Header = () => {
       const data = await response.json();
 
       if (data.success) {
-        // ✅ Show success toast only once
         toast.success(
           isAuto
             ? "⏰ Test auto-submitted successfully! Closing..."
@@ -363,7 +350,6 @@ const Header = () => {
         setShowSubmitModal(false);
         if (testTimer) clearInterval(testTimer);
 
-        // ✅ IMMEDIATELY update the local state
         setTestAttempt((prev) => {
           const updated = {
             ...prev,
@@ -373,16 +359,12 @@ const Header = () => {
           return updated;
         });
 
-        // ✅ Also update the ref
         testIdRef.current = testId;
 
-        // ✅ Re-fetch from server to get latest data (don't show toast)
         await checkTestAttempt(testId, false);
 
-        // ✅ Dispatch refresh event for other components
         window.dispatchEvent(new CustomEvent("refreshTestAttempt"));
 
-        // ✅ Set redirecting flag to prevent duplicate toasts
         setIsRedirecting(true);
 
         setTimeout(() => {
@@ -572,7 +554,8 @@ const Header = () => {
                 </div>
               )}
 
-            {isAdmin && authChecked && (
+            {/* ✅ Admin Button - Uses isAdmin from useRole hook */}
+            {!roleLoading && isAdmin && authChecked && (
               <Link
                 to="/admin"
                 className="flex items-center gap-1.5 px-3 py-2 bg-indigo-50 text-indigo-700 hover:bg-indigo-100 rounded-lg border border-indigo-200 transition-all duration-300 text-sm font-medium hover:scale-105 active:scale-95"
@@ -633,7 +616,8 @@ const Header = () => {
                 />
               </div>
 
-              {isAdmin && authChecked && (
+              {/* ✅ Admin Button in Mobile Menu - Uses isAdmin from useRole hook */}
+              {!roleLoading && isAdmin && authChecked && (
                 <Link
                   to="/admin"
                   className="flex items-center gap-2 px-4 py-2 bg-indigo-50 text-indigo-700 rounded-lg border border-indigo-200 w-full justify-center"
@@ -671,7 +655,6 @@ const Header = () => {
               </button>
             </div>
 
-            {/* ✅ Warning only - no details */}
             <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 mb-6">
               <p className="text-sm text-amber-700 flex items-start gap-2">
                 <span className="text-lg">⚠️</span>

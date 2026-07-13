@@ -3,7 +3,6 @@ import jwt from "jsonwebtoken";
 import User from "../models/User.js";
 import mongoose from "mongoose";
 
-// const BYPASS_AUTH = true;
 const BYPASS_AUTH = false;
 
 const BYPASS_USER = {

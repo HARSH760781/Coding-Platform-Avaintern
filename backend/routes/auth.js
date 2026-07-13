@@ -3,6 +3,7 @@ import express from "express";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 import User from "../models/User.js";
+import { protect } from "../middleware/auth.js";
 
 const router = express.Router();
 
@@ -237,6 +238,53 @@ router.post("/change-password", async (req, res) => {
   } catch (error) {
     console.error("Change password error:", error);
     res.status(500).json({ error: error.message || "Server error" });
+  }
+});
+
+// ============================================
+// ✅ ADD THIS - GET /api/auth/verify-role
+// Verify user role from database
+// ============================================
+router.get("/verify-role", protect, async (req, res) => {
+  try {
+    // protect middleware already verified the token and attached user
+    const userId = req.userId;
+
+    if (!userId) {
+      return res.status(401).json({
+        success: false,
+        error: "User not authenticated",
+      });
+    }
+
+    const user = await User.findById(userId).select(
+      "role fullName email college",
+    );
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        error: "User not found",
+      });
+    }
+
+    res.json({
+      success: true,
+      role: user.role,
+      isAdmin: user.role === "admin",
+      isStudent: user.role === "student",
+      isTeacher: user.role === "teacher",
+      userId: user._id,
+      name: user.fullName,
+      email: user.email,
+      college: user.college,
+    });
+  } catch (error) {
+    console.error("Error verifying role:", error);
+    res.status(500).json({
+      success: false,
+      error: "Failed to verify role",
+    });
   }
 });
 

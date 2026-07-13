@@ -234,7 +234,7 @@ const ProblemsList = () => {
       );
 
       const data = await response.json();
-      // console.log("📊 ProblemsList - checkTestAttempt response:", data);
+      console.log("📊 ProblemsList - checkTestAttempt response:", data);
 
       if (data.success) {
         // ✅ Get data directly from the response
