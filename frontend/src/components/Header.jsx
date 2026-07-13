@@ -18,7 +18,43 @@ import {
 } from "lucide-react";
 import { getProblems } from "../services/api";
 import toast from "react-hot-toast";
-import { useRole } from "../Hooks/useRole"; // ✅ Import the hook
+import { useRole } from "../hooks/useRole";
+
+// ✅ Utility: Get user ID
+const getUserId = () => localStorage.getItem("userId") || "anonymous";
+
+// ✅ Utility: Clear old test data for this user
+const clearOldTestData = (newTestId) => {
+  const userId = getUserId();
+  const userPrefix = `user_${userId}_`;
+
+  // Get all test IDs for this user
+  const testIds = new Set();
+  Object.keys(localStorage).forEach((key) => {
+    if (key.startsWith(userPrefix)) {
+      const parts = key.split("_");
+      // Format: user_{userId}_editor_{testId}_{problemId}
+      // or: user_{userId}_solvedProblems_{testId}
+      const testIdIndex = parts.findIndex(
+        (p) => p === "editor" || p === "solvedProblems",
+      );
+      if (testIdIndex !== -1 && parts[testIdIndex + 1]) {
+        testIds.add(parts[testIdIndex + 1]);
+      }
+    }
+  });
+
+  // Remove data from tests that are not the current one
+  testIds.forEach((testId) => {
+    if (testId !== newTestId) {
+      Object.keys(localStorage).forEach((key) => {
+        if (key.includes(`_${testId}_`) || key.includes(`_${testId}`)) {
+          localStorage.removeItem(key);
+        }
+      });
+    }
+  });
+};
 
 const Header = () => {
   const [problems, setProblems] = useState([]);
@@ -54,7 +90,6 @@ const Header = () => {
     const init = async () => {
       await fetchProblems();
       checkSolvedProblems();
-      // ❌ REMOVED: checkAdminStatus(); - Now handled by useRole hook
 
       const urlParams = new URLSearchParams(window.location.search);
       const urlTestId = urlParams.get("testId");
@@ -66,6 +101,9 @@ const Header = () => {
         testIdRef.current = finalTestId;
         setIsTestMode(true);
         setIsTestModeLoading(true);
+
+        // ✅ Clear old test data for this user
+        clearOldTestData(finalTestId);
 
         // ✅ Wait for both to complete
         await Promise.all([
@@ -132,12 +170,19 @@ const Header = () => {
   };
 
   const checkSolvedProblems = () => {
-    const solved = JSON.parse(localStorage.getItem("solvedProblems") || "[]");
-    setSolvedProblems(solved);
-  };
+    const userId = getUserId();
+    const currentTestId = localStorage.getItem("currentTestId");
 
-  // ❌ REMOVE this entire function - no longer needed
-  // const checkAdminStatus = () => { ... };
+    if (currentTestId) {
+      // ✅ Load test-specific solved problems
+      const key = `user_${userId}_solvedProblems_${currentTestId}`;
+      const solved = JSON.parse(localStorage.getItem(key) || "[]");
+      setSolvedProblems(solved);
+    } else {
+      const solved = JSON.parse(localStorage.getItem("solvedProblems") || "[]");
+      setSolvedProblems(solved);
+    }
+  };
 
   // ✅ Redirect to Main App and Close Current Tab
   const redirectToMainAppAndClose = () => {

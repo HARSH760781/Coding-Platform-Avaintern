@@ -1,15 +1,11 @@
-// frontend/src/pages/ProblemsList.jsx
-
 import React, { useState, useEffect } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import Logo from "../assets/logo.png";
 import { getProblems } from "../services/api";
 import toast from "react-hot-toast";
 import {
   Code2,
   ChevronRight,
   Brain,
-  Rocket,
   CheckCircle2,
   Circle,
   Zap,
@@ -23,13 +19,15 @@ import {
   Medal,
   Star,
   Eye,
-  Shield,
-  Send,
   AlertTriangle,
   Timer,
   X,
   Loader2,
+  Send,
 } from "lucide-react";
+
+// ✅ Utility: Get user ID
+const getUserId = () => localStorage.getItem("userId") || "anonymous";
 
 const ProblemsList = () => {
   const [problems, setProblems] = useState([]);
@@ -60,6 +58,7 @@ const ProblemsList = () => {
   // ✅ Main app URL
   const MAIN_APP_URL = "https://avainternlms.in";
 
+  // ✅ Initial load effect
   useEffect(() => {
     const urlParams = new URLSearchParams(window.location.search);
     const urlTestId = urlParams.get("testId");
@@ -75,11 +74,7 @@ const ProblemsList = () => {
     const checkAdminStatus = () => {
       try {
         const role = localStorage.getItem("role");
-        const userStr = localStorage.getItem("user");
-        const user = userStr ? JSON.parse(userStr) : {};
-        const token = localStorage.getItem("token");
-        const isAdminUser =
-          role === "admin" || user?.role === "admin" || user?.isAdmin === true;
+        const isAdminUser = role === "admin";
         setIsAdmin(isAdminUser);
         setAuthChecked(true);
       } catch (error) {
@@ -156,11 +151,18 @@ const ProblemsList = () => {
     };
   }, []);
 
+  // ✅ Refresh event listener - runs once on mount
   useEffect(() => {
     const handleTestRefresh = () => {
-      if (testId) {
-        // console.log("🔄 ProblemsList - Test refresh event received!");
-        checkTestAttempt(testId);
+      const currentTestId = localStorage.getItem("currentTestId");
+      if (currentTestId) {
+        console.log("🔄 ProblemsList - Test refresh event received!");
+        setTestId(currentTestId);
+        setIsTestMode(true);
+        checkTestAttempt(currentTestId);
+        startTestTimer(currentTestId);
+        checkSolvedProblems();
+        fetchProblems();
       }
     };
 
@@ -169,7 +171,7 @@ const ProblemsList = () => {
     return () => {
       window.removeEventListener("refreshTestAttempt", handleTestRefresh);
     };
-  }, [testId]);
+  }, []); // ✅ Empty dependency array - runs once
 
   const fetchProblems = async () => {
     try {
@@ -191,15 +193,21 @@ const ProblemsList = () => {
     }
   };
 
+  // ✅ Updated: Load test-specific solved problems
   const checkSolvedProblems = () => {
-    if (isTestMode && testId) {
-      const testSolved = JSON.parse(
-        localStorage.getItem(`solvedProblems_${testId}`) || "[]",
-      );
+    const userId = getUserId();
+    const currentTestId = localStorage.getItem("currentTestId");
+
+    if (isTestMode && currentTestId) {
+      // ✅ Test-specific solved problems
+      const key = `user_${userId}_solvedProblems_${currentTestId}`;
+      const testSolved = JSON.parse(localStorage.getItem(key) || "[]");
       setTestSolvedProblems(testSolved);
       setSolvedProblems(testSolved);
     } else {
-      const solved = JSON.parse(localStorage.getItem("solvedProblems") || "[]");
+      // ✅ Global solved (for practice mode)
+      const key = `user_${userId}_solvedProblems_global`;
+      const solved = JSON.parse(localStorage.getItem(key) || "[]");
       setSolvedProblems(solved);
       setTestSolvedProblems([]);
     }
@@ -207,20 +215,22 @@ const ProblemsList = () => {
 
   const refreshTestAttempt = async () => {
     if (testId) {
-      // console.log("🔄 ProblemsList - Refreshing test attempt...");
       await checkTestAttempt(testId);
     }
   };
 
   const clearTestSolvedProblems = () => {
-    if (testId) {
-      localStorage.removeItem(`solvedProblems_${testId}`);
+    const userId = getUserId();
+    const currentTestId = localStorage.getItem("currentTestId");
+    if (currentTestId) {
+      const key = `user_${userId}_solvedProblems_${currentTestId}`;
+      localStorage.removeItem(key);
       setTestSolvedProblems([]);
       setSolvedProblems([]);
     }
   };
 
-  // ✅ Check test attempt status - FIXED
+  // ✅ Updated: Check test attempt with user isolation
   const checkTestAttempt = async (testId) => {
     try {
       const token = localStorage.getItem("token");
@@ -237,7 +247,6 @@ const ProblemsList = () => {
       console.log("📊 ProblemsList - checkTestAttempt response:", data);
 
       if (data.success) {
-        // ✅ Get data directly from the response
         const status = data.status || "in_progress";
         const solutions = data.solutions || [];
         const passedCount = data.passedCount || 0;
@@ -246,17 +255,6 @@ const ProblemsList = () => {
         const passed = data.passed || false;
         const hasAttempted = data.hasAttempted || false;
 
-        // console.log("📊 Setting testAttempt with:", {
-        //   status,
-        //   solutionsCount: solutions.length,
-        //   passedCount,
-        //   totalProblems,
-        //   percentage,
-        //   passed,
-        //   hasAttempted,
-        // });
-
-        // ✅ Store everything in testAttempt state
         setTestAttempt({
           status: status,
           solutions: solutions,
@@ -268,7 +266,6 @@ const ProblemsList = () => {
           message: data.message,
         });
 
-        // ✅ Check if test is already submitted
         if (status === "submitted" || status === "completed") {
           toast.error("You have already submitted this test!");
           setTimeout(() => {
@@ -374,7 +371,6 @@ const ProblemsList = () => {
   const handleSubmitTest = async (isAuto = false) => {
     if (submitting) return;
 
-    // ✅ Check if test is already submitted
     if (
       testAttempt?.status === "submitted" ||
       testAttempt?.status === "completed"
@@ -383,13 +379,11 @@ const ProblemsList = () => {
       return;
     }
 
-    // ✅ Check if test is in progress
     if (testAttempt?.status === "in_progress") {
       if (isAuto) {
         await confirmSubmit(true);
         return;
       }
-      // ✅ Show confirmation modal for manual submission
       setShowSubmitModal(true);
     } else {
       toast.error("Test is not in progress");
@@ -499,6 +493,9 @@ const ProblemsList = () => {
     return Math.round(totalAcceptance / problems.length);
   };
 
+  // ✅ Get solutions count
+  const solutionsCount = testAttempt?.solutions?.length || 0;
+
   if (loading) {
     return (
       <div className="flex items-center justify-center min-h-screen bg-gray-50">
@@ -526,9 +523,6 @@ const ProblemsList = () => {
     return matchesSearch && matchesDifficulty;
   });
 
-  // ✅ Get solutions count
-  const solutionsCount = testAttempt?.solutions?.length || 0;
-
   return (
     <div className="min-h-screen bg-gray-50">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-6">
@@ -553,8 +547,9 @@ const ProblemsList = () => {
               </div>
 
               {/* ✅ Submit Button - Always Enabled */}
-              {/* <button
+              <button
                 onClick={() => handleSubmitTest(false)}
+                disabled={submitting}
                 className="px-4 py-1.5 rounded-lg text-sm font-medium transition-all duration-300 bg-gradient-to-r from-emerald-600 to-green-600 text-white hover:shadow-lg hover:shadow-emerald-500/25 hover:scale-[1.02] flex items-center gap-2"
               >
                 {submitting ? (
@@ -568,7 +563,7 @@ const ProblemsList = () => {
                     Submit Test
                   </>
                 )}
-              </button> */}
+              </button>
             </div>
           </div>
         )}

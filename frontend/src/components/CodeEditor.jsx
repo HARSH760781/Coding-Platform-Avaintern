@@ -1,4 +1,5 @@
 // frontend/src/components/CodeEditor.jsx
+
 import React, { useState, useEffect, useRef } from "react";
 import Editor from "@monaco-editor/react";
 import {
@@ -25,6 +26,11 @@ import {
   getSampleTestCases,
 } from "../services/api";
 import toast from "react-hot-toast";
+
+// ✅ Utility: Get user ID
+const getUserId = () => localStorage.getItem("userId") || "anonymous";
+const getCurrentTestId = () =>
+  localStorage.getItem("currentTestId") || "default";
 
 const CodeEditor = ({
   problemId,
@@ -64,7 +70,7 @@ const CodeEditor = ({
   const dragStartY = useRef(0);
   const dragStartHeight = useRef(0);
 
-  // Language templates with better formatting
+  // Language templates
   const templates = {
     python: `def solve():\n    # Write your solution here\n    pass\n\nif __name__ == "__main__":\n    solve()`,
     cpp: `#include <bits/stdc++.h>\nusing namespace std;\n\nint main() {\n    // Write your solution here\n    return 0;\n}`,
@@ -74,27 +80,67 @@ const CodeEditor = ({
   };
 
   // ============================================
-  // ✅ PERSISTENCE FUNCTIONS
+  // ✅ UPDATED: USER + TEST SPECIFIC PERSISTENCE
   // ============================================
+
+  // ✅ Save with user + test context
   const saveEditorState = (problemId, language, code, isAccepted = false) => {
     try {
+      const userId = getUserId();
+      const testId = getCurrentTestId();
+
       const state = {
         language,
         code,
         isAccepted,
         timestamp: new Date().toISOString(),
+        userId: userId,
+        testId: testId,
       };
-      localStorage.setItem(`editor_${problemId}`, JSON.stringify(state));
+
+      const key = `user_${userId}_editor_${testId}_${problemId}`;
+      localStorage.setItem(key, JSON.stringify(state));
+
+      console.log(
+        `💾 Code saved for user ${userId}, test ${testId}, problem ${problemId}`,
+      );
     } catch (error) {
       console.error("Error saving editor state:", error);
     }
   };
 
+  // ✅ Load with user + test context
   const loadEditorState = (problemId) => {
     try {
-      const saved = localStorage.getItem(`editor_${problemId}`);
+      const userId = getUserId();
+      const testId = getCurrentTestId();
+
+      // ✅ Try user + test specific first
+      const key = `user_${userId}_editor_${testId}_${problemId}`;
+      let saved = localStorage.getItem(key);
+
+      // ✅ Fallback to test-specific only (migration)
+      if (!saved) {
+        const oldKey = `editor_${testId}_${problemId}`;
+        saved = localStorage.getItem(oldKey);
+        if (saved) {
+          localStorage.setItem(key, saved);
+          localStorage.removeItem(oldKey);
+          console.log(`📦 Migrated old data for ${problemId}`);
+        }
+      }
+
       if (saved) {
         const data = JSON.parse(saved);
+        // ✅ Verify user and test match
+        if (data.userId && data.userId !== userId) {
+          console.warn(`⚠️ Data belongs to different user, ignoring`);
+          return null;
+        }
+        if (data.testId && data.testId !== testId) {
+          console.warn(`⚠️ Data belongs to different test, ignoring`);
+          return null;
+        }
         return data;
       }
     } catch (error) {
@@ -103,11 +149,34 @@ const CodeEditor = ({
     return null;
   };
 
+  // ✅ Clear with user + test context
   const clearEditorState = (problemId) => {
     try {
-      localStorage.removeItem(`editor_${problemId}`);
+      const userId = getUserId();
+      const testId = getCurrentTestId();
+      const key = `user_${userId}_editor_${testId}_${problemId}`;
+      localStorage.removeItem(key);
+      console.log(`🗑️ Cleared code for ${problemId}`);
     } catch (error) {
       console.error("Error clearing editor state:", error);
+    }
+  };
+
+  // ✅ Mark problem as solved with user + test context
+  const markProblemSolved = (problemId) => {
+    const userId = getUserId();
+    const currentTestId = localStorage.getItem("currentTestId");
+
+    if (currentTestId) {
+      const key = `user_${userId}_solvedProblems_${currentTestId}`;
+      const testSolved = JSON.parse(localStorage.getItem(key) || "[]");
+      if (!testSolved.includes(problemId)) {
+        testSolved.push(problemId);
+        localStorage.setItem(key, JSON.stringify(testSolved));
+        console.log(
+          `✅ Problem ${problemId} marked as solved for test ${currentTestId}`,
+        );
+      }
     }
   };
 
@@ -330,7 +399,7 @@ const CodeEditor = ({
     }
   };
 
-  // ✅ SUBMIT
+  // ✅ SUBMIT - UPDATED with solved problems tracking
   const handleSubmit = async () => {
     if (!code.trim()) {
       setOutput("⚠️ Please write some code first");
@@ -384,9 +453,16 @@ const CodeEditor = ({
           onSubmissionComplete(data.status, data.score);
         }
 
+        // ✅ When problem is accepted, mark as solved with user+test context
         if (data.status === "Accepted") {
           setIsAccepted(true);
           saveEditorState(problemId, language, code, true);
+          markProblemSolved(problemId);
+
+          // ✅ Refresh the problem list
+          if (onRefreshTestAttempt) {
+            await onRefreshTestAttempt();
+          }
         }
 
         let outputText = `📊 Results: ${data.status.toUpperCase()}\n`;

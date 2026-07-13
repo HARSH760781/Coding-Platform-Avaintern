@@ -1,9 +1,13 @@
 // frontend/src/pages/ProblemDetail.jsx
+
 import React, { useState, useEffect } from "react";
 import { useParams, useNavigate, useLocation } from "react-router-dom";
 import { getProblem } from "../services/api";
 import CodeEditor from "../components/CodeEditor";
 import toast from "react-hot-toast";
+
+// ✅ Utility: Get user ID
+const getUserId = () => localStorage.getItem("userId") || "anonymous";
 
 const ProblemDetail = () => {
   const { problemId } = useParams();
@@ -17,12 +21,10 @@ const ProblemDetail = () => {
   const [submissionCount, setSubmissionCount] = useState(0);
 
   const getTestId = () => {
-    // 1. Check URL query params
     const urlParams = new URLSearchParams(location.search);
     const urlTestId = urlParams.get("testId");
     if (urlTestId) return urlTestId;
 
-    // 2. Check localStorage
     const storedTestId = localStorage.getItem("testId");
     if (
       storedTestId &&
@@ -32,7 +34,6 @@ const ProblemDetail = () => {
       return storedTestId;
     }
 
-    // 3. Check sessionStorage
     const sessionTestId = sessionStorage.getItem("testId");
     if (
       sessionTestId &&
@@ -42,7 +43,6 @@ const ProblemDetail = () => {
       return sessionTestId;
     }
 
-    // 4. Check if testId was passed via navigation state
     if (location.state?.testId) {
       return location.state.testId;
     }
@@ -51,9 +51,6 @@ const ProblemDetail = () => {
   };
 
   const testId = getTestId();
-  // ✅ Debug: Log the testId
-  // console.log("📝 ProblemDetail - testId:", testId);
-  // console.log("📝 ProblemDetail - problemId:", problemId);
 
   useEffect(() => {
     fetchProblem();
@@ -92,36 +89,64 @@ const ProblemDetail = () => {
 
   const refreshTestAttempt = async () => {
     if (testId) {
-      // console.log("🔄 ProblemDetail - Refreshing test attempt...");
-      // Dispatch a custom event that ProblemsList is listening to
       window.dispatchEvent(new CustomEvent("refreshTestAttempt"));
     }
   };
 
+  // ✅ ONLY ONE VERSION - With test isolation (CORRECT)
   const checkSolvedStatus = () => {
-    const solvedProblems = JSON.parse(
-      localStorage.getItem("solvedProblems") || "[]",
-    );
-    if (solvedProblems.includes(problemId)) {
-      setSubmissionStatus("Accepted");
-      setSubmissionScore(100);
+    const userId = getUserId();
+    const currentTestId = localStorage.getItem("currentTestId");
+
+    if (currentTestId) {
+      const key = `user_${userId}_solvedProblems_${currentTestId}`;
+      const solvedProblems = JSON.parse(localStorage.getItem(key) || "[]");
+      if (solvedProblems.includes(problemId)) {
+        setSubmissionStatus("Accepted");
+        setSubmissionScore(100);
+      }
+    } else {
+      const key = `user_${userId}_solvedProblems_global`;
+      const solvedProblems = JSON.parse(localStorage.getItem(key) || "[]");
+      if (solvedProblems.includes(problemId)) {
+        setSubmissionStatus("Accepted");
+        setSubmissionScore(100);
+      }
     }
   };
 
+  // ✅ ONLY ONE VERSION - With test isolation (CORRECT)
   const handleSubmissionComplete = (status, score) => {
     setSubmissionStatus(status);
     setSubmissionScore(score);
     setSubmissionCount((prev) => prev + 1);
 
     if (status === "Accepted" || status === "accepted") {
-      const solvedProblems = JSON.parse(
-        localStorage.getItem("solvedProblems") || "[]",
-      );
-      if (!solvedProblems.includes(problemId)) {
-        solvedProblems.push(problemId);
-        localStorage.setItem("solvedProblems", JSON.stringify(solvedProblems));
+      const userId = getUserId();
+      const currentTestId = localStorage.getItem("currentTestId");
+
+      if (currentTestId) {
+        // ✅ Test-specific solved problems
+        const key = `user_${userId}_solvedProblems_${currentTestId}`;
+        const solvedProblems = JSON.parse(localStorage.getItem(key) || "[]");
+        if (!solvedProblems.includes(problemId)) {
+          solvedProblems.push(problemId);
+          localStorage.setItem(key, JSON.stringify(solvedProblems));
+        }
+      } else {
+        // ✅ Global solved (for practice mode)
+        const key = `user_${userId}_solvedProblems_global`;
+        const solvedProblems = JSON.parse(localStorage.getItem(key) || "[]");
+        if (!solvedProblems.includes(problemId)) {
+          solvedProblems.push(problemId);
+          localStorage.setItem(key, JSON.stringify(solvedProblems));
+        }
       }
+
       toast.success("🎉 Problem Solved!");
+
+      // ✅ Refresh the problem list to update solved status
+      window.dispatchEvent(new CustomEvent("refreshTestAttempt"));
     }
   };
 
@@ -165,7 +190,7 @@ const ProblemDetail = () => {
           ← Back to Problems
         </button>
 
-        {/* 🏆 Status Banner - Professional LeetCode Style */}
+        {/* 🏆 Status Banner */}
         <div className="mb-4 flex items-center justify-between">
           <div className="flex items-center gap-3">
             <span
@@ -291,7 +316,7 @@ const ProblemDetail = () => {
           </div>
         </div>
       </div>
-      {/* {console.log(testId)} */}
+
       {/* Code Editor Panel */}
       <div className="w-1/2">
         <CodeEditor
