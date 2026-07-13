@@ -5,7 +5,7 @@ import { useParams, useNavigate, useLocation } from "react-router-dom";
 import { getProblem } from "../services/api";
 import CodeEditor from "../components/CodeEditor";
 import toast from "react-hot-toast";
-import { GripHorizontal, ChevronLeft, ChevronRight } from "lucide-react";
+import { Maximize2, Minimize2, GripHorizontal } from "lucide-react";
 
 // ✅ Utility: Get user ID
 const getUserId = () => localStorage.getItem("userId") || "anonymous";
@@ -20,11 +20,12 @@ const ProblemDetail = () => {
   const [submissionStatus, setSubmissionStatus] = useState(null);
   const [submissionScore, setSubmissionScore] = useState(null);
   const [submissionCount, setSubmissionCount] = useState(0);
+  const [isEditorFullscreen, setIsEditorFullscreen] = useState(false);
 
-  // ✅ Splitter state
-  const [problemWidth, setProblemWidth] = useState(50); // Percentage
+  // ✅ Splitter state for problem/editor resize
+  const [problemWidth, setProblemWidth] = useState(35); // Percentage
   const [isDraggingSplit, setIsDraggingSplit] = useState(false);
-  const [isProblemPanelCollapsed, setIsProblemPanelCollapsed] = useState(false);
+  const [isHoveringSplit, setIsHoveringSplit] = useState(false);
 
   const containerRef = useRef(null);
   const splitterRef = useRef(null);
@@ -99,10 +100,13 @@ const ProblemDetail = () => {
 
   const handleSplitterMouseMove = (e) => {
     if (!isDraggingSplit) return;
+
+    // Get the container width
     const containerRect = containerRef.current?.getBoundingClientRect();
     if (!containerRect) return;
 
     const containerWidth = containerRect.width;
+    // Calculate new width based on mouse position relative to container
     const relativeX = (e.clientX - containerRect.left) / containerWidth;
     const newWidth = Math.min(Math.max(relativeX * 100, 20), 80);
 
@@ -113,6 +117,7 @@ const ProblemDetail = () => {
   const handleSplitterTouchMove = (e) => {
     e.preventDefault();
     if (!isDraggingSplit) return;
+
     const containerRect = containerRef.current?.getBoundingClientRect();
     if (!containerRect) return;
 
@@ -138,11 +143,6 @@ const ProblemDetail = () => {
     document.removeEventListener("touchmove", handleSplitterTouchMove);
     document.removeEventListener("touchend", handleSplitterTouchEnd);
     document.body.style.userSelect = "";
-  };
-
-  // ✅ Toggle problem panel collapse
-  const toggleProblemPanel = () => {
-    setIsProblemPanelCollapsed(!isProblemPanelCollapsed);
   };
 
   useEffect(() => {
@@ -237,6 +237,22 @@ const ProblemDetail = () => {
     }
   };
 
+  // ✅ Toggle Editor Fullscreen
+  const toggleEditorFullscreen = () => {
+    setIsEditorFullscreen(!isEditorFullscreen);
+  };
+
+  // ✅ Handle escape key to exit fullscreen
+  useEffect(() => {
+    const handleEsc = (e) => {
+      if (e.key === "Escape" && isEditorFullscreen) {
+        setIsEditorFullscreen(false);
+      }
+    };
+    window.addEventListener("keydown", handleEsc);
+    return () => window.removeEventListener("keydown", handleEsc);
+  }, [isEditorFullscreen]);
+
   if (loading) {
     return (
       <div className="flex items-center justify-center min-h-screen bg-gray-900">
@@ -268,24 +284,25 @@ const ProblemDetail = () => {
 
   return (
     <div className="flex h-screen bg-gray-900 text-white overflow-hidden">
-      {/* ✅ Problem Panel */}
-      <div
-        ref={containerRef}
-        className={`flex flex-col bg-gray-800 border-r border-gray-700 overflow-hidden transition-all duration-300 ${
-          isProblemPanelCollapsed ? "w-0 border-0" : ""
-        }`}
-        style={{
-          width: isProblemPanelCollapsed ? "0" : `${problemWidth}%`,
-          minWidth: isProblemPanelCollapsed ? "0" : "200px",
-        }}
-      >
-        <div className="overflow-y-auto p-6 flex-1">
-          <button
-            onClick={() => navigate("/problems")}
-            className="text-gray-400 hover:text-white mb-4 text-sm flex items-center gap-1 transition"
-          >
-            ← Back to Problems
-          </button>
+      {/* Problem Panel */}
+      {!isEditorFullscreen && (
+        <div
+          className="overflow-y-auto bg-gray-800 p-6 border-r border-gray-700 transition-all duration-300"
+          style={{
+            width: `${problemWidth}%`,
+            minWidth: "200px",
+            maxWidth: "80%",
+            flexShrink: 0,
+          }}
+        >
+          <div className="flex items-center justify-between mb-4">
+            <button
+              onClick={() => navigate("/problems")}
+              className="text-gray-400 hover:text-white text-sm flex items-center gap-1 transition"
+            >
+              ← Back to Problems
+            </button>
+          </div>
 
           {/* Status Banner */}
           <div className="mb-4 flex items-center justify-between flex-wrap gap-2">
@@ -334,34 +351,34 @@ const ProblemDetail = () => {
             )}
           </div>
 
-          <h1 className="text-3xl font-bold mb-4">
+          <h1 className="text-2xl font-bold mb-4">
             {problem.title || "Untitled Problem"}
           </h1>
 
           <div className="prose prose-invert max-w-none">
-            <div className="whitespace-pre-wrap text-gray-300 leading-relaxed">
+            <div className="whitespace-pre-wrap text-gray-300 leading-relaxed text-sm">
               {problem.description || "No description available"}
             </div>
           </div>
 
           {/* Examples */}
           {problem.examples && problem.examples.length > 0 && (
-            <div className="mt-8">
-              <h3 className="font-semibold text-lg mb-3 text-gray-200">
+            <div className="mt-6">
+              <h3 className="font-semibold text-base mb-2 text-gray-200">
                 📝 Examples
               </h3>
               {problem.examples.map((example, idx) => (
-                <div key={idx} className="bg-gray-700 rounded-lg p-4 mb-3">
-                  <p className="text-gray-400 text-sm">Input:</p>
-                  <pre className="bg-gray-900 p-2 rounded text-sm text-gray-300 overflow-x-auto">
+                <div key={idx} className="bg-gray-700 rounded-lg p-3 mb-3">
+                  <p className="text-gray-400 text-xs">Input:</p>
+                  <pre className="bg-gray-900 p-2 rounded text-xs text-gray-300 overflow-x-auto">
                     {example.input || "(empty)"}
                   </pre>
-                  <p className="text-gray-400 text-sm mt-2">Output:</p>
-                  <pre className="bg-gray-900 p-2 rounded text-sm text-gray-300 overflow-x-auto">
+                  <p className="text-gray-400 text-xs mt-2">Output:</p>
+                  <pre className="bg-gray-900 p-2 rounded text-xs text-gray-300 overflow-x-auto">
                     {example.output || "(empty)"}
                   </pre>
                   {example.explanation && (
-                    <p className="text-gray-400 text-sm mt-2">
+                    <p className="text-gray-400 text-xs mt-2">
                       💡 {example.explanation}
                     </p>
                   )}
@@ -372,11 +389,11 @@ const ProblemDetail = () => {
 
           {/* Constraints */}
           {problem.constraints && (
-            <div className="mt-8">
-              <h3 className="font-semibold text-lg mb-2 text-gray-200">
+            <div className="mt-6">
+              <h3 className="font-semibold text-base mb-2 text-gray-200">
                 🔒 Constraints
               </h3>
-              <div className="bg-gray-700 rounded-lg p-3 text-gray-300 text-sm">
+              <div className="bg-gray-700 rounded-lg p-3 text-gray-300 text-xs">
                 {problem.constraints}
               </div>
             </div>
@@ -384,12 +401,12 @@ const ProblemDetail = () => {
 
           {/* Tags */}
           {problem.tags && problem.tags.length > 0 && (
-            <div className="mt-6">
-              <div className="flex flex-wrap gap-2">
+            <div className="mt-4">
+              <div className="flex flex-wrap gap-1.5">
                 {problem.tags.map((tag, idx) => (
                   <span
                     key={idx}
-                    className="px-2 py-1 bg-gray-700 rounded text-xs text-gray-400"
+                    className="px-2 py-0.5 bg-gray-700 rounded text-xs text-gray-400"
                   >
                     #{tag}
                   </span>
@@ -399,82 +416,124 @@ const ProblemDetail = () => {
           )}
 
           {/* Stats */}
-          <div className="mt-8 pt-4 border-t border-gray-700">
-            <div className="flex flex-wrap gap-6 text-sm text-gray-400">
-              <span>⏱ Time Limit: {problem.timeLimit || 2}s</span>
-              <span>💾 Memory Limit: {problem.memoryLimit || 256}MB</span>
-              <span>
-                📊 Acceptance: {problem.acceptanceRate?.toFixed(1) || 0}%
-              </span>
-              <span>📝 Submissions: {problem.totalSubmissions || 0}</span>
+          <div className="mt-6 pt-3 border-t border-gray-700">
+            <div className="flex flex-wrap gap-4 text-xs text-gray-400">
+              <span>⏱ {problem.timeLimit || 2}s</span>
+              <span>💾 {problem.memoryLimit || 256}MB</span>
+              <span>📊 {problem.acceptanceRate?.toFixed(1) || 0}%</span>
+              <span>📝 {problem.totalSubmissions || 0}</span>
               {submissionStatus === "Accepted" && (
                 <span className="text-green-400">✅ Solved</span>
               )}
             </div>
           </div>
         </div>
-      </div>
+      )}
 
       {/* ✅ Professional Splitter Handle */}
-      <div
-        ref={splitterRef}
-        className={`flex items-center justify-center w-2.5 bg-gray-800 hover:bg-gray-700 cursor-col-resize transition-all duration-200 group flex-shrink-0 relative ${
-          isDraggingSplit ? "bg-blue-600" : ""
-        } ${isProblemPanelCollapsed ? "hidden" : ""}`}
-        onMouseDown={handleSplitterMouseDown}
-        onTouchStart={handleSplitterTouchStart}
-      >
-        {/* Decorative grip */}
-        <div className="flex flex-col items-center gap-1 px-1">
-          <div className="w-px h-4 bg-gray-600 group-hover:bg-gray-400 transition-colors"></div>
-          <GripHorizontal
-            className={`w-3 h-3 text-gray-500 group-hover:text-gray-300 transition-colors rotate-90 ${isDraggingSplit ? "text-white" : ""}`}
-          />
-          <div className="w-px h-4 bg-gray-600 group-hover:bg-gray-400 transition-colors"></div>
-        </div>
-
-        {/* Glow effects */}
+      {!isEditorFullscreen && (
         <div
-          className={`absolute inset-y-0 left-0 w-px bg-gradient-to-b from-transparent via-gray-500 to-transparent opacity-0 group-hover:opacity-50 transition-opacity ${isDraggingSplit ? "opacity-100 via-blue-400" : ""}`}
-        ></div>
-        <div
-          className={`absolute inset-y-0 right-0 w-px bg-gradient-to-b from-transparent via-gray-500 to-transparent opacity-0 group-hover:opacity-50 transition-opacity ${isDraggingSplit ? "opacity-100 via-blue-400" : ""}`}
-        ></div>
-
-        {isDraggingSplit && (
-          <div className="absolute inset-0 bg-blue-500/10 border-x border-blue-500/30"></div>
-        )}
-
-        {/* Collapse/Expand button */}
-        <button
-          onClick={toggleProblemPanel}
-          className="absolute -right-3 top-1/2 transform -translate-y-1/2 z-10 w-5 h-10 bg-gray-700 rounded-r-lg border border-gray-600 border-l-0 flex items-center justify-center hover:bg-gray-600 transition-colors opacity-0 group-hover:opacity-100"
-          title={isProblemPanelCollapsed ? "Show problem" : "Hide problem"}
+          ref={splitterRef}
+          className={`flex items-center justify-center w-2.5 bg-gray-800 hover:bg-gray-700 cursor-col-resize transition-all duration-200 group flex-shrink-0 relative ${
+            isDraggingSplit ? "bg-blue-600" : ""
+          }`}
+          onMouseDown={handleSplitterMouseDown}
+          onTouchStart={handleSplitterTouchStart}
+          onMouseEnter={() => setIsHoveringSplit(true)}
+          onMouseLeave={() => setIsHoveringSplit(false)}
         >
-          {isProblemPanelCollapsed ? (
-            <ChevronRight className="w-3 h-3 text-gray-300" />
-          ) : (
-            <ChevronLeft className="w-3 h-3 text-gray-300" />
+          {/* Decorative grip */}
+          {/* <div className="flex flex-col items-center gap-1 px-1">
+            <div className="w-px h-3 bg-gray-600 group-hover:bg-gray-400 transition-colors"></div>
+            <GripHorizontal
+              className={`w-3 h-3 text-gray-500 group-hover:text-gray-300 transition-all duration-300 rotate-90 ${
+                isDraggingSplit ? "text-white rotate-180" : ""
+              }`}
+            />
+            <div className="w-px h-3 bg-gray-600 group-hover:bg-gray-400 transition-colors"></div>
+          </div> */}
+
+          {/* Glow effects */}
+          <div
+            className={`absolute inset-y-0 left-0 w-px bg-gradient-to-b from-transparent via-gray-500 to-transparent opacity-0 group-hover:opacity-50 transition-opacity ${
+              isDraggingSplit ? "opacity-100 via-blue-400" : ""
+            }`}
+          ></div>
+          <div
+            className={`absolute inset-y-0 right-0 w-px bg-gradient-to-b from-transparent via-gray-500 to-transparent opacity-0 group-hover:opacity-50 transition-opacity ${
+              isDraggingSplit ? "opacity-100 via-blue-400" : ""
+            }`}
+          ></div>
+
+          {isDraggingSplit && (
+            <div className="absolute inset-0 bg-blue-500/10 border-x border-blue-500/30"></div>
           )}
-        </button>
-      </div>
+
+          {/* Tooltip on hover */}
+          {isHoveringSplit && !isDraggingSplit && (
+            <div className="absolute -top-8 left-1/2 transform -translate-x-1/2 px-2 py-1 bg-gray-700 text-[10px] text-gray-300 rounded whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity">
+              Drag to resize
+            </div>
+          )}
+        </div>
+      )}
 
       {/* ✅ Code Editor Panel */}
       <div
-        className={`flex-1 overflow-hidden transition-all duration-300 ${
-          isProblemPanelCollapsed ? "w-full" : ""
+        className={`flex flex-col h-full transition-all duration-300 ${
+          isEditorFullscreen ? "w-full" : ""
         }`}
         style={{
-          width: isProblemPanelCollapsed ? "100%" : `${100 - problemWidth}%`,
+          flex: isEditorFullscreen ? "none" : "1",
+          width: isEditorFullscreen ? "100%" : "auto",
         }}
       >
-        <CodeEditor
-          problemId={problem.problemId}
-          testId={testId}
-          onSubmissionComplete={handleSubmissionComplete}
-          onRefreshTestAttempt={refreshTestAttempt}
-        />
+        {/* Editor Toolbar with Fullscreen Toggle */}
+        <div className="flex items-center justify-between px-4 py-2 bg-gray-800 border-b border-gray-700 flex-shrink-0">
+          <div className="flex items-center gap-3">
+            <span className="text-sm text-gray-400 font-medium">
+              {isEditorFullscreen ? "📝 Coding Editor" : "Code Editor"}
+            </span>
+            {isEditorFullscreen && (
+              <span className="text-xs text-blue-400 animate-pulse">
+                Fullscreen Mode
+              </span>
+            )}
+          </div>
+          <button
+            onClick={toggleEditorFullscreen}
+            className="p-1.5 rounded-lg bg-gray-700 hover:bg-gray-600 transition-colors text-gray-300 hover:text-white"
+            title={isEditorFullscreen ? "Exit Fullscreen" : "Fullscreen Editor"}
+          >
+            {isEditorFullscreen ? (
+              <Minimize2 className="w-4 h-4" />
+            ) : (
+              <Maximize2 className="w-4 h-4" />
+            )}
+          </button>
+        </div>
+
+        {/* Code Editor */}
+        <div className="flex-1 overflow-hidden">
+          <CodeEditor
+            problemId={problem.problemId}
+            testId={testId}
+            onSubmissionComplete={handleSubmissionComplete}
+            onRefreshTestAttempt={refreshTestAttempt}
+          />
+        </div>
       </div>
+
+      {/* ✅ Exit Fullscreen Floating Button */}
+      {isEditorFullscreen && (
+        <button
+          onClick={toggleEditorFullscreen}
+          className="fixed bottom-6 right-6 z-50 px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg shadow-lg flex items-center gap-2 transition-all duration-200 hover:scale-105"
+        >
+          <Minimize2 className="w-4 h-4" />
+          <span>Exit Fullscreen</span>
+        </button>
+      )}
     </div>
   );
 };

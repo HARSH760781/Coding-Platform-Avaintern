@@ -89,12 +89,14 @@ const ProblemsList = () => {
   // ✅ Redirect to Main App and Close Current Tab
   const redirectToMainAppAndClose = () => {
     try {
+      // Clear test data
       localStorage.removeItem("currentTestId");
       localStorage.removeItem("testId");
       localStorage.removeItem("testTitle");
       localStorage.removeItem("currentTestTitle");
       clearTestSolvedProblems();
 
+      // ✅ Send message to parent window to let it know test is complete
       if (window.opener) {
         window.opener.postMessage(
           {
@@ -109,13 +111,19 @@ const ProblemsList = () => {
         );
       }
 
-      window.location.href = MAIN_APP_URL;
+      // ✅ Close the tab (this works since it was opened by window.open())
+      window.close();
+
+      // ✅ Fallback: If window.close() doesn't work, redirect to blank page
       setTimeout(() => {
-        window.close();
-      }, 500);
+        if (!window.closed) {
+          window.location.href = "about:blank";
+        }
+      }, 300);
     } catch (error) {
-      console.error("❌ Error redirecting:", error);
-      navigate("/problems");
+      console.error("❌ Error closing tab:", error);
+      // Last resort: redirect to blank page
+      window.location.href = "about:blank";
     }
   };
 

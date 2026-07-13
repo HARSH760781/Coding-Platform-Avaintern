@@ -54,24 +54,22 @@ const CodeEditor = ({
   const [hiddenResults, setHiddenResults] = useState(null);
   const [isAccepted, setIsAccepted] = useState(false);
   const [hasLoaded, setHasLoaded] = useState(false);
+  const [outputHeight, setOutputHeight] = useState(250);
+  const [isDragging, setIsDragging] = useState(false);
   const [loadingType, setLoadingType] = useState(null);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [isHoveringRun, setIsHoveringRun] = useState(false);
   const [isHoveringSubmit, setIsHoveringSubmit] = useState(false);
   const [isHoveringReset, setIsHoveringReset] = useState(false);
-
-  // ✅ Splitter state
-  const [splitRatio, setSplitRatio] = useState(65); // Editor percentage
-  const [isDraggingSplit, setIsDraggingSplit] = useState(false);
+  const [isHoveringDrag, setIsHoveringDrag] = useState(false);
 
   const outputRef = useRef(null);
   const editorRef = useRef(null);
   const containerRef = useRef(null);
   const saveTimeoutRef = useRef(null);
-  const splitterRef = useRef(null);
 
   const dragStartY = useRef(0);
-  const dragStartRatio = useRef(0);
+  const dragStartHeight = useRef(0);
 
   // Language templates
   const templates = {
@@ -207,10 +205,10 @@ const CodeEditor = ({
         loadStarterCode();
       }
 
-      // Load saved split ratio
-      const savedRatio = localStorage.getItem("editorSplitRatio");
-      if (savedRatio) {
-        setSplitRatio(parseFloat(savedRatio));
+      // Load saved output height
+      const savedHeight = localStorage.getItem("outputHeight");
+      if (savedHeight) {
+        setOutputHeight(parseInt(savedHeight));
       }
 
       setHasLoaded(true);
@@ -253,74 +251,50 @@ const CodeEditor = ({
   }, [output, isOutputExpanded]);
 
   // ============================================
-  // ✅ DRAG TO RESIZE SPLITTER (Editor/Output)
+  // ✅ PROFESSIONAL DRAG TO RESIZE OUTPUT PANEL
   // ============================================
-  const handleSplitterMouseDown = (e) => {
+  const handleDragStart = (e) => {
     e.preventDefault();
-    setIsDraggingSplit(true);
-    dragStartY.current = e.clientY;
-    dragStartRatio.current = splitRatio;
+    setIsDragging(true);
+    dragStartY.current = e.clientY || e.touches?.[0]?.clientY || 0;
+    dragStartHeight.current = outputHeight;
 
-    document.addEventListener("mousemove", handleSplitterMouseMove);
-    document.addEventListener("mouseup", handleSplitterMouseUp);
+    document.addEventListener("mousemove", handleDragMove);
+    document.addEventListener("mouseup", handleDragEnd);
+    document.addEventListener("touchmove", handleDragMove, { passive: false });
+    document.addEventListener("touchend", handleDragEnd);
     document.body.style.cursor = "ns-resize";
     document.body.style.userSelect = "none";
+
+    // Add a class to the container for smooth transitions
+    containerRef.current?.classList.add("dragging");
   };
 
-  const handleSplitterTouchStart = (e) => {
+  const handleDragMove = (e) => {
     e.preventDefault();
-    setIsDraggingSplit(true);
-    dragStartY.current = e.touches[0].clientY;
-    dragStartRatio.current = splitRatio;
-
-    document.addEventListener("touchmove", handleSplitterTouchMove, {
-      passive: false,
-    });
-    document.addEventListener("touchend", handleSplitterTouchEnd);
-    document.body.style.userSelect = "none";
+    const clientY = e.clientY || e.touches?.[0]?.clientY || 0;
+    const deltaY = dragStartY.current - clientY;
+    const newHeight = Math.min(
+      Math.max(dragStartHeight.current + deltaY, 120),
+      600,
+    );
+    setOutputHeight(newHeight);
   };
 
-  const handleSplitterMouseMove = (e) => {
-    if (!isDraggingSplit) return;
-    const containerRect = containerRef.current?.getBoundingClientRect();
-    if (!containerRect) return;
-
-    const containerHeight = containerRect.height;
-    const relativeY = (e.clientY - containerRect.top) / containerHeight;
-    const newRatio = Math.min(Math.max(relativeY * 100, 20), 80);
-
-    setSplitRatio(newRatio);
-    localStorage.setItem("editorSplitRatio", newRatio.toString());
-  };
-
-  const handleSplitterTouchMove = (e) => {
-    e.preventDefault();
-    if (!isDraggingSplit) return;
-    const containerRect = containerRef.current?.getBoundingClientRect();
-    if (!containerRect) return;
-
-    const containerHeight = containerRect.height;
-    const relativeY =
-      (e.touches[0].clientY - containerRect.top) / containerHeight;
-    const newRatio = Math.min(Math.max(relativeY * 100, 20), 80);
-
-    setSplitRatio(newRatio);
-    localStorage.setItem("editorSplitRatio", newRatio.toString());
-  };
-
-  const handleSplitterMouseUp = () => {
-    setIsDraggingSplit(false);
-    document.removeEventListener("mousemove", handleSplitterMouseMove);
-    document.removeEventListener("mouseup", handleSplitterMouseUp);
+  const handleDragEnd = () => {
+    setIsDragging(false);
+    document.removeEventListener("mousemove", handleDragMove);
+    document.removeEventListener("mouseup", handleDragEnd);
+    document.removeEventListener("touchmove", handleDragMove);
+    document.removeEventListener("touchend", handleDragEnd);
     document.body.style.cursor = "";
     document.body.style.userSelect = "";
-  };
 
-  const handleSplitterTouchEnd = () => {
-    setIsDraggingSplit(false);
-    document.removeEventListener("touchmove", handleSplitterTouchMove);
-    document.removeEventListener("touchend", handleSplitterTouchEnd);
-    document.body.style.userSelect = "";
+    // Remove the dragging class
+    containerRef.current?.classList.remove("dragging");
+
+    // Save the height to localStorage
+    localStorage.setItem("outputHeight", outputHeight.toString());
   };
 
   const handleEditorDidMount = (editor) => {
@@ -759,205 +733,259 @@ const CodeEditor = ({
         </div>
       </div>
 
-      {/* ✅ Editor & Output Container with Splitter */}
-      <div ref={containerRef} className="flex-1 relative flex flex-col min-h-0">
-        {/* Editor Area */}
-        <div
-          className="relative overflow-hidden"
-          style={{
-            flex: `0 0 ${splitRatio}%`,
-            minHeight: "80px",
+      {/* Editor */}
+      <div className="flex-1 relative min-h-0">
+        <Editor
+          height="100%"
+          language={language}
+          value={code}
+          onChange={(value) => setCode(value || "")}
+          theme="vs-dark"
+          onMount={handleEditorDidMount}
+          options={{
+            minimap: { enabled: true, scale: 0.8 },
+            fontSize: 14,
+            lineNumbers: "on",
+            automaticLayout: true,
+            scrollBeyondLastLine: false,
+            tabSize: 4,
+            wordWrap: "on",
+            formatOnPaste: true,
+            formatOnType: true,
+            bracketPairColorization: { enabled: true },
+            renderWhitespace: "selection",
+            cursorBlinking: "smooth",
+            smoothScrolling: true,
+            cursorSmoothCaretAnimation: "on",
+            fontFamily:
+              "'JetBrains Mono', 'Fira Code', 'Cascadia Code', monospace",
+            fontLigatures: true,
+            renderLineHighlight: "all",
+            lineHeight: 1.6,
+            padding: { top: 8, bottom: 8 },
+            suggest: {
+              showKeywords: true,
+              showSnippets: true,
+              showFunctions: true,
+              showConstructors: true,
+              showDeprecated: true,
+            },
+            quickSuggestions: true,
+            parameterHints: { enabled: true },
+            autoClosingBrackets: "always",
+            autoClosingQuotes: "always",
+            autoIndent: "full",
+            folding: true,
+            foldingStrategy: "indentation",
+            codeLens: true,
           }}
-        >
-          <Editor
-            height="100%"
-            language={language}
-            value={code}
-            onChange={(value) => setCode(value || "")}
-            theme="vs-dark"
-            onMount={handleEditorDidMount}
-            options={{
-              minimap: { enabled: true, scale: 0.8 },
-              fontSize: 14,
-              lineNumbers: "on",
-              automaticLayout: true,
-              scrollBeyondLastLine: false,
-              tabSize: 4,
-              wordWrap: "on",
-              formatOnPaste: true,
-              formatOnType: true,
-              bracketPairColorization: { enabled: true },
-              renderWhitespace: "selection",
-              cursorBlinking: "smooth",
-              smoothScrolling: true,
-              cursorSmoothCaretAnimation: "on",
-              fontFamily:
-                "'JetBrains Mono', 'Fira Code', 'Cascadia Code', monospace",
-              fontLigatures: true,
-              renderLineHighlight: "all",
-              lineHeight: 1.6,
-              padding: { top: 8, bottom: 8 },
-              suggest: {
-                showKeywords: true,
-                showSnippets: true,
-                showFunctions: true,
-                showConstructors: true,
-                showDeprecated: true,
-              },
-              quickSuggestions: true,
-              parameterHints: { enabled: true },
-              autoClosingBrackets: "always",
-              autoClosingQuotes: "always",
-              autoIndent: "full",
-              folding: true,
-              foldingStrategy: "indentation",
-              codeLens: true,
-            }}
-          />
-        </div>
+        />
+      </div>
 
-        {/* ✅ Professional Splitter Handle */}
-        <div
-          ref={splitterRef}
-          className={`flex items-center justify-center h-2.5 bg-gray-800 hover:bg-gray-700 cursor-ns-resize transition-all duration-200 group flex-shrink-0 relative ${
-            isDraggingSplit ? "bg-blue-600" : ""
-          }`}
-          onMouseDown={handleSplitterMouseDown}
-          onTouchStart={handleSplitterTouchStart}
-        >
-          {/* Decorative line */}
-          <div className="flex items-center gap-2 px-2">
-            <div className="h-px w-6 bg-gray-600 group-hover:bg-gray-400 transition-colors"></div>
-            <GripHorizontal
-              className={`w-4 h-4 text-gray-500 group-hover:text-gray-300 transition-colors ${isDraggingSplit ? "text-white" : ""}`}
-            />
-            <div className="h-px w-6 bg-gray-600 group-hover:bg-gray-400 transition-colors"></div>
-          </div>
-
-          {/* Glow effects */}
+      {/* ✅ Professional Output Panel with Drag Handle */}
+      {/* ✅ Professional Output Panel with Drag Handle */}
+      <div
+        ref={containerRef}
+        className={`bg-gray-900 border-t border-gray-700 overflow-hidden flex-shrink-0 transition-all duration-300 ${
+          isOutputExpanded ? "" : "h-10"
+        } ${isDragging ? "transition-none" : "transition-all duration-300"}`}
+        style={{
+          minHeight: isOutputExpanded ? "48px" : "40px",
+          height: isOutputExpanded ? `${outputHeight}px` : "40px",
+          maxHeight: isOutputExpanded ? "600px" : "40px",
+          // ✅ Critical: Keep it at the bottom
+          marginTop: "auto",
+        }}
+      >
+        {/* ✅ Professional Drag Handle - Only show when expanded */}
+        {isOutputExpanded && (
           <div
-            className={`absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-gray-500 to-transparent opacity-0 group-hover:opacity-50 transition-opacity ${isDraggingSplit ? "opacity-100 via-blue-400" : ""}`}
-          ></div>
-          <div
-            className={`absolute inset-x-0 bottom-0 h-px bg-gradient-to-r from-transparent via-gray-500 to-transparent opacity-0 group-hover:opacity-50 transition-opacity ${isDraggingSplit ? "opacity-100 via-blue-400" : ""}`}
-          ></div>
-
-          {isDraggingSplit && (
-            <div className="absolute inset-0 bg-blue-500/10 border-y border-blue-500/30"></div>
-          )}
-        </div>
-
-        {/* Output Area */}
-        <div
-          className={`bg-gray-900 border-t border-gray-700 overflow-hidden flex-shrink-0 ${
-            isOutputExpanded ? "" : "h-10"
-          }`}
-          style={{
-            flex: `0 0 ${100 - splitRatio}%`,
-            minHeight: isOutputExpanded ? "60px" : "40px",
-          }}
-        >
-          {/* Output Header */}
-          <div
-            className="flex items-center justify-between px-4 py-2 bg-gradient-to-r from-gray-800 to-gray-850 border-b border-gray-700 cursor-pointer hover:from-gray-750 hover:to-gray-800 transition-all duration-200 h-10 flex-shrink-0 group"
-            onClick={() => setIsOutputExpanded(!isOutputExpanded)}
+            className={`flex items-center justify-center py-1 bg-gradient-to-r from-gray-800 to-gray-850 hover:from-gray-700 hover:to-gray-750 cursor-ns-resize transition-all duration-200 group relative select-none ${
+              isDragging ? "from-blue-900/30 to-blue-800/30" : ""
+            }`}
+            onMouseDown={handleDragStart}
+            onTouchStart={handleDragStart}
+            onMouseEnter={() => setIsHoveringDrag(true)}
+            onMouseLeave={() => setIsHoveringDrag(false)}
           >
-            <div className="flex items-center gap-3 overflow-hidden">
-              <div className="flex items-center gap-2">
-                <Terminal className="w-3.5 h-3.5 text-gray-400" />
-                <span className="text-gray-300 font-medium text-sm whitespace-nowrap">
-                  Output
+            {/* Animated drag indicator */}
+            {/* <div className="flex items-center gap-3 px-4 py-0.5">
+              <div className="flex items-center gap-1">
+                <div
+                  className={`w-1 h-1 rounded-full bg-gray-500 group-hover:bg-gray-300 transition-all duration-300 ${isDragging ? "bg-blue-400 scale-150" : ""}`}
+                ></div>
+                <div
+                  className={`w-1 h-1 rounded-full bg-gray-500 group-hover:bg-gray-300 transition-all duration-300 delay-75 ${isDragging ? "bg-blue-400 scale-150" : ""}`}
+                ></div>
+                <div
+                  className={`w-1 h-1 rounded-full bg-gray-500 group-hover:bg-gray-300 transition-all duration-300 delay-150 ${isDragging ? "bg-blue-400 scale-150" : ""}`}
+                ></div>
+              </div>
+              <GripHorizontal
+                className={`w-4 h-4 text-gray-500 group-hover:text-gray-300 transition-all duration-300 ${isDragging ? "text-blue-400 rotate-180" : ""}`}
+              />
+              <span
+                className={`text-[8px] text-gray-500 group-hover:text-gray-300 transition-all duration-300 uppercase tracking-wider font-medium ${isDragging ? "text-blue-400" : ""}`}
+              >
+                {isDragging ? "Release to resize" : "Drag to resize"}
+              </span>
+              <GripHorizontal
+                className={`w-4 h-4 text-gray-500 group-hover:text-gray-300 transition-all duration-300 ${isDragging ? "text-blue-400 -rotate-180" : ""}`}
+              />
+              <div className="flex items-center gap-1">
+                <div
+                  className={`w-1 h-1 rounded-full bg-gray-500 group-hover:bg-gray-300 transition-all duration-300 delay-150 ${isDragging ? "bg-blue-400 scale-150" : ""}`}
+                ></div>
+                <div
+                  className={`w-1 h-1 rounded-full bg-gray-500 group-hover:bg-gray-300 transition-all duration-300 delay-75 ${isDragging ? "bg-blue-400 scale-150" : ""}`}
+                ></div>
+                <div
+                  className={`w-1 h-1 rounded-full bg-gray-500 group-hover:bg-gray-300 transition-all duration-300 ${isDragging ? "bg-blue-400 scale-150" : ""}`}
+                ></div>
+              </div>
+            </div> */}
+
+            {/* Glow line effect */}
+            <div
+              className={`absolute inset-x-0 top-0 h-0.5 bg-gradient-to-r from-transparent via-gray-500 to-transparent opacity-0 group-hover:opacity-50 transition-all duration-300 ${isDragging ? "opacity-100 via-blue-400" : ""}`}
+            ></div>
+            <div
+              className={`absolute inset-x-0 bottom-0 h-0.5 bg-gradient-to-r from-transparent via-gray-500 to-transparent opacity-0 group-hover:opacity-50 transition-all duration-300 ${isDragging ? "opacity-100 via-blue-400" : ""}`}
+            ></div>
+
+            {/* Glow background on drag */}
+            {isDragging && (
+              <div className="absolute inset-0 bg-blue-500/5 animate-pulse"></div>
+            )}
+          </div>
+        )}
+
+        {/* Output Header - Always visible */}
+        <div
+          className="flex items-center justify-between px-4 py-2 bg-gradient-to-r from-gray-800 to-gray-850 border-b border-gray-700 cursor-pointer hover:from-gray-750 hover:to-gray-800 transition-all duration-200 h-10 flex-shrink-0 group"
+          onClick={() => setIsOutputExpanded(!isOutputExpanded)}
+        >
+          <div className="flex items-center gap-3 overflow-hidden">
+            <div className="flex items-center gap-2">
+              <Terminal className="w-3.5 h-3.5 text-gray-400" />
+              <span className="text-gray-300 font-medium text-sm whitespace-nowrap">
+                Output
+              </span>
+              {isOutputExpanded && (
+                <span className="text-[10px] text-gray-500 hidden lg:inline ml-1">
+                  (Drag handle to resize)
                 </span>
-                {isOutputExpanded && (
-                  <span className="text-[10px] text-gray-500 hidden lg:inline ml-1">
-                    (Drag handle above to resize)
+              )}
+              {!isOutputExpanded && (
+                <span className="text-[10px] text-blue-400 ml-1 animate-pulse font-medium">
+                  ▼ Click to expand
+                </span>
+              )}
+            </div>
+            {loading && (
+              <div className="flex items-center gap-2">
+                <Loader2 className="w-3 h-3 text-blue-400 animate-spin" />
+                <span className="text-blue-400 text-xs">
+                  {loadingType === "run" ? "Running..." : "Submitting..."}
+                </span>
+              </div>
+            )}
+            {!loading && testResults.length > 0 && isOutputExpanded && (
+              <div className="flex gap-2 text-sm">
+                <span className="text-green-400 whitespace-nowrap flex items-center gap-1">
+                  <CheckCircle className="w-3 h-3" />
+                  {testResults.filter((t) => t.passed).length}
+                </span>
+                <span className="text-red-400 whitespace-nowrap flex items-center gap-1">
+                  <XCircle className="w-3 h-3" />
+                  {testResults.filter((t) => !t.passed).length}
+                </span>
+                <span className="text-gray-500 whitespace-nowrap">
+                  ({passedCount}/{totalCount})
+                </span>
+              </div>
+            )}
+            {!loading && testResults.length > 0 && !isOutputExpanded && (
+              <div className="flex items-center gap-2 text-xs">
+                <span className="text-green-400 whitespace-nowrap">
+                  ✅ {testResults.filter((t) => t.passed).length} passed
+                </span>
+                {testResults.filter((t) => !t.passed).length > 0 && (
+                  <span className="text-red-400 whitespace-nowrap">
+                    ❌ {testResults.filter((t) => !t.passed).length} failed
                   </span>
                 )}
               </div>
-              {loading && (
-                <div className="flex items-center gap-2">
-                  <Loader2 className="w-3 h-3 text-blue-400 animate-spin" />
-                  <span className="text-blue-400 text-xs">
-                    {loadingType === "run" ? "Running..." : "Submitting..."}
-                  </span>
-                </div>
-              )}
-              {!loading && testResults.length > 0 && (
-                <div className="flex gap-2 text-sm">
-                  <span className="text-green-400 whitespace-nowrap flex items-center gap-1">
-                    <CheckCircle className="w-3 h-3" />
-                    {testResults.filter((t) => t.passed).length}
-                  </span>
-                  <span className="text-red-400 whitespace-nowrap flex items-center gap-1">
-                    <XCircle className="w-3 h-3" />
-                    {testResults.filter((t) => !t.passed).length}
-                  </span>
-                  <span className="text-gray-500 whitespace-nowrap">
-                    ({passedCount}/{totalCount})
-                  </span>
-                </div>
-              )}
-              {errorDetails && (
-                <span className="text-red-400 text-xs whitespace-nowrap flex items-center gap-1">
-                  <AlertCircle className="w-3 h-3" />
-                  Error
-                </span>
-              )}
-              {isSaved && (
-                <span className="text-green-400 text-xs whitespace-nowrap flex items-center gap-1">
-                  <CheckCircle className="w-3 h-3" />
-                  Saved
-                </span>
-              )}
-            </div>
-            <div className="flex items-center gap-2 flex-shrink-0">
-              <span className="text-gray-500 text-xs group-hover:text-gray-400 transition-colors">
-                {isOutputExpanded ? (
-                  <ChevronDown className="w-3 h-3" />
-                ) : (
-                  <ChevronUp className="w-3 h-3" />
-                )}
+            )}
+            {errorDetails && (
+              <span className="text-red-400 text-xs whitespace-nowrap flex items-center gap-1">
+                <AlertCircle className="w-3 h-3" />
+                Error
               </span>
-            </div>
+            )}
+            {isSaved && (
+              <span className="text-green-400 text-xs whitespace-nowrap flex items-center gap-1">
+                <CheckCircle className="w-3 h-3" />
+                Saved
+              </span>
+            )}
           </div>
 
-          {/* Output Content */}
-          {isOutputExpanded && (
-            <div
-              ref={outputRef}
-              className="overflow-auto p-4 font-mono text-sm"
-              style={{ height: `calc(100% - 40px)` }}
+          {/* ✅ Collapse/Expand Button */}
+          <div className="flex items-center gap-2 flex-shrink-0">
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                setIsOutputExpanded(!isOutputExpanded);
+              }}
+              className="p-1 rounded-md hover:bg-gray-700/50 transition-colors text-gray-400 hover:text-white"
+              title={isOutputExpanded ? "Collapse Output" : "Expand Output"}
             >
-              {loading ? (
-                <div className="flex flex-col items-center justify-center h-full gap-3 text-gray-400">
-                  <div className="relative">
-                    <div className="w-10 h-10 border-3 border-blue-500/30 border-t-blue-500 rounded-full animate-spin"></div>
-                    <div className="absolute inset-0 flex items-center justify-center">
-                      <div className="w-4 h-4 bg-blue-500 rounded-full animate-pulse"></div>
-                    </div>
-                  </div>
-                  <span className="text-sm font-medium">
-                    {loadingType === "run"
-                      ? "Running sample tests..."
-                      : "Submitting code for evaluation..."}
-                  </span>
-                  <span className="text-xs text-gray-500">
-                    This may take a few seconds
-                  </span>
-                </div>
+              {isOutputExpanded ? (
+                <ChevronDown className="w-4 h-4" />
               ) : (
-                <pre
-                  className={`whitespace-pre-wrap break-words ${
-                    errorDetails ? "text-red-400" : "text-gray-300"
-                  } leading-relaxed`}
-                >
-                  {output ||
-                    '💡 Write code and click "Run" to test, or "Submit" for full evaluation'}
-                </pre>
+                <ChevronUp className="w-4 h-4" />
               )}
-            </div>
-          )}
+            </button>
+          </div>
         </div>
+
+        {/* Output Content - Only visible when expanded */}
+        {isOutputExpanded && (
+          <div
+            ref={outputRef}
+            className="overflow-auto p-4 font-mono text-sm"
+            style={{ height: `calc(100% - 40px - 32px)` }}
+          >
+            {loading ? (
+              <div className="flex flex-col items-center justify-center h-full gap-3 text-gray-400">
+                <div className="relative">
+                  <div className="w-10 h-10 border-3 border-blue-500/30 border-t-blue-500 rounded-full animate-spin"></div>
+                  <div className="absolute inset-0 flex items-center justify-center">
+                    <div className="w-4 h-4 bg-blue-500 rounded-full animate-pulse"></div>
+                  </div>
+                </div>
+                <span className="text-sm font-medium">
+                  {loadingType === "run"
+                    ? "Running sample tests..."
+                    : "Submitting code for evaluation..."}
+                </span>
+                <span className="text-xs text-gray-500">
+                  This may take a few seconds
+                </span>
+              </div>
+            ) : (
+              <pre
+                className={`whitespace-pre-wrap break-words ${
+                  errorDetails ? "text-red-400" : "text-gray-300"
+                } leading-relaxed`}
+              >
+                {output ||
+                  '💡 Write code and click "Run" to test, or "Submit" for full evaluation'}
+              </pre>
+            )}
+          </div>
+        )}
       </div>
     </div>
   );
