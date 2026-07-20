@@ -670,43 +670,75 @@ const ProblemsList = () => {
 
   // ✅ Initial load effect
   useEffect(() => {
-    const urlParams = new URLSearchParams(window.location.search);
-    const urlTestId = urlParams.get("testId");
-    const storedTestId = localStorage.getItem("currentTestId");
-    const finalTestId = urlTestId || storedTestId;
-
-    if (finalTestId) {
-      setTestId(finalTestId);
-      setIsTestMode(true);
-      localStorage.setItem("currentTestId", finalTestId);
-    }
-
-    const checkAdminStatus = () => {
+    const initializeApp = async () => {
       try {
-        const role = localStorage.getItem("role");
-        const isAdminUser = role === "admin";
-        setIsAdmin(isAdminUser);
-        setAuthChecked(true);
+        const urlParams = new URLSearchParams(window.location.search);
+        const urlTestId = urlParams.get("testId");
+        const storedTestId = localStorage.getItem("currentTestId");
+        const finalTestId = urlTestId || storedTestId;
+
+        if (finalTestId) {
+          setTestId(finalTestId);
+          setIsTestMode(true);
+          localStorage.setItem("currentTestId", finalTestId);
+        }
+
+        // ✅ Step 1: Check admin status (sync - fast)
+        try {
+          const role = localStorage.getItem("role");
+          const isAdminUser = role === "admin";
+          setIsAdmin(isAdminUser);
+          setAuthChecked(true);
+        } catch (error) {
+          console.error("Error checking admin status:", error);
+          setIsAdmin(false);
+          setAuthChecked(true);
+        }
+
+        // ✅ Step 2: Fetch problems FIRST (WAIT for it to complete)
+        console.log("📚 Fetching problems...");
+        await fetchProblems();
+        console.log("✅ Problems fetched successfully");
+
+        // ✅ Step 3: Load solved problems (WAIT)
+        console.log("🔍 Loading solved problems...");
+        await checkSolvedProblems(finalTestId);
+        console.log("✅ Solved problems loaded");
+
+        // ✅ Step 4: If in test mode, check attempt and start timer
+        if (finalTestId) {
+          console.log("🧪 Checking test attempt...");
+          await checkTestAttempt(finalTestId);
+          console.log("✅ Test attempt checked");
+
+          console.log("⏰ Starting timer...");
+          await startTestTimer(finalTestId);
+          console.log("✅ Timer started");
+        }
+
+        console.log("🎉 App initialized successfully!");
       } catch (error) {
-        console.error("Error checking admin status:", error);
-        setIsAdmin(false);
-        setAuthChecked(true);
+        console.error("❌ Error initializing app:", error);
+        toast.error("Failed to load test. Please refresh.");
       }
     };
 
-    checkAdminStatus();
-    fetchProblems();
-    // ✅ Pass the testId if it exists
-    checkSolvedProblems(finalTestId);
+    // ✅ Start the initialization
+    initializeApp();
 
-    if (finalTestId) {
-      checkTestAttempt(finalTestId);
-      startTestTimer(finalTestId);
-    }
-
+    // ✅ Event listeners (these can stay as they are)
     const handleStorageChange = (e) => {
       if (e.key === "role" || e.key === "user" || e.key === "token") {
-        checkAdminStatus();
+        try {
+          const role = localStorage.getItem("role");
+          const isAdminUser = role === "admin";
+          setIsAdmin(isAdminUser);
+          setAuthChecked(true);
+        } catch (error) {
+          console.error("Error checking admin status:", error);
+          setIsAdmin(false);
+          setAuthChecked(true);
+        }
       }
       if (e.key === "currentTestId") {
         const newTestId = localStorage.getItem("currentTestId");
@@ -715,15 +747,10 @@ const ProblemsList = () => {
           setIsTestMode(true);
           checkTestAttempt(newTestId);
           startTestTimer(newTestId);
-          // ✅ Pass the testId
           checkSolvedProblems(newTestId);
         }
       }
-      // ✅ Also listen for solved problems changes
       if (e.key && e.key.includes("_solvedProblems_")) {
-        // console.log(
-        //   "🔄 ProblemsList - Solved problems updated in localStorage",
-        // );
         const currentTestId = localStorage.getItem("currentTestId");
         checkSolvedProblems(currentTestId);
       }
@@ -749,6 +776,7 @@ const ProblemsList = () => {
           resumeMode,
           attemptId,
         } = event.data.data;
+
         if (role === "admin") {
           setIsAdmin(true);
           localStorage.setItem("role", "admin");
@@ -756,6 +784,7 @@ const ProblemsList = () => {
           setIsAdmin(false);
           localStorage.setItem("role", "user");
         }
+
         if (receivedTestId) {
           setTestId(receivedTestId);
           setIsTestMode(true);
@@ -770,7 +799,6 @@ const ProblemsList = () => {
       if (resumeMode && attemptId) {
         localStorage.setItem("resumeMode", "true");
         localStorage.setItem("attemptId", attemptId);
-        // Load existing solutions
         loadExistingSolutions(attemptId);
       }
     };
