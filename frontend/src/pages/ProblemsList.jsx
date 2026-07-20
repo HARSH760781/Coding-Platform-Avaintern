@@ -86,9 +86,25 @@ const ProblemsList = () => {
     return `${pad(minutes)}:${pad(seconds)}`;
   };
 
+  // ✅ Clear test timer data
+  const clearTestTimerData = (testIdToClear) => {
+    if (testTimer) {
+      clearInterval(testTimer);
+      setTestTimer(null);
+    }
+    if (testIdToClear) {
+      localStorage.removeItem(`test_start_time_${testIdToClear}`);
+    }
+    setTimeRemaining(0);
+    setIsTestEnded(true);
+  };
+
   // ✅ Redirect to Main App and Close Current Tab
   const redirectToMainAppAndClose = () => {
     try {
+      // ✅ Clear timer data
+      clearTestTimerData(testId);
+
       // Clear test data
       localStorage.removeItem("currentTestId");
       localStorage.removeItem("testId");
@@ -163,9 +179,14 @@ const ProblemsList = () => {
             : "✅ Test submitted successfully! Closing...",
         );
         setShowSubmitModal(false);
+        // ✅ Clear timer
         if (testTimer) clearInterval(testTimer);
         setIsTestEnded(true);
         clearTestSolvedProblems();
+        // ✅ Clear start time from localStorage
+        if (testId) {
+          localStorage.removeItem(`test_start_time_${testId}`);
+        }
 
         setTimeout(() => {
           redirectToMainAppAndClose();
@@ -254,10 +275,12 @@ const ProblemsList = () => {
     }
   };
 
-  // ✅ Start test timer for auto-submit
+  // ✅ Start test timer for auto-submit - FIXED
   const startTestTimer = async (testId) => {
     try {
       const token = localStorage.getItem("token");
+
+      // ✅ Step 1: Get test status from backend
       const response = await fetch(
         `${serverURL}/coding/test-status/${testId}`,
         {
@@ -270,14 +293,154 @@ const ProblemsList = () => {
       const data = await response.json();
 
       if (data.success && data.status === "active") {
-        setTimeRemaining(data.timeRemaining);
-        setTestDuration(data.duration || 0);
+        // ✅ Get duration from the test (in minutes, convert to ms)
+        const durationMs = (data.duration || 60) * 60 * 1000;
 
+        // ✅ Key for localStorage
+        const startTimeKey = `test_start_time_${testId}`;
+
+        // ✅ Try localStorage first
+        let testStartTime = localStorage.getItem(startTimeKey);
+        let startTimeMs;
+        let finalRemainingTime;
+
+        if (testStartTime) {
+          // ✅ Use localStorage start time
+          startTimeMs = parseInt(testStartTime);
+          console.log(
+            `⏰ Found start time in localStorage: ${new Date(startTimeMs).toLocaleTimeString()}`,
+          );
+        } else {
+          // ✅ Fallback: Get startTime from backend
+          console.log("⏰ No localStorage start time, checking backend...");
+
+          try {
+            const attemptResponse = await fetch(
+              `${serverURL}/coding/attempt-status/${testId}`,
+              {
+                headers: {
+                  Authorization: `Bearer ${token}`,
+                },
+              },
+            );
+
+            const attemptData = await attemptResponse.json();
+
+            if (attemptData.success && attemptData.startTime) {
+              // ✅ Use backend start time
+              startTimeMs = new Date(attemptData.startTime).getTime();
+
+              // ✅ Save to localStorage for future use
+              localStorage.setItem(startTimeKey, startTimeMs.toString());
+              console.log(
+                `⏰ Recovered start time from backend: ${new Date(startTimeMs).toLocaleTimeString()}`,
+              );
+            } else {
+              // ✅ No start time found anywhere - user hasn't started
+              console.log("⏰ No start time found, starting fresh...");
+              const now = Date.now();
+              localStorage.setItem(startTimeKey, now.toString());
+              startTimeMs = now;
+              setTimeRemaining(durationMs);
+              setTestDuration(durationMs);
+
+              // ✅ Start timer
+              if (testTimer) {
+                clearInterval(testTimer);
+              }
+              const timer = setInterval(() => {
+                setTimeRemaining((prev) => {
+                  if (prev <= 1000) {
+                    clearInterval(timer);
+                    toast.error("⏰ Test time is over! Auto-submitting...");
+                    setIsTestEnded(true);
+                    handleSubmitTest(true);
+                    return 0;
+                  }
+                  return prev - 1000;
+                });
+              }, 1000);
+              setTestTimer(timer);
+              return;
+            }
+          } catch (error) {
+            console.error("❌ Error fetching attempt status:", error);
+            // Fallback: start fresh
+            const now = Date.now();
+            localStorage.setItem(startTimeKey, now.toString());
+            startTimeMs = now;
+            setTimeRemaining(durationMs);
+            setTestDuration(durationMs);
+
+            // ✅ Start timer
+            if (testTimer) {
+              clearInterval(testTimer);
+            }
+            const timer = setInterval(() => {
+              setTimeRemaining((prev) => {
+                if (prev <= 1000) {
+                  clearInterval(timer);
+                  toast.error("⏰ Test time is over! Auto-submitting...");
+                  setIsTestEnded(true);
+                  handleSubmitTest(true);
+                  return 0;
+                }
+                return prev - 1000;
+              });
+            }, 1000);
+            setTestTimer(timer);
+            return;
+          }
+        }
+
+        // ✅ Calculate BOTH remaining times
+        const individualEndTime = startTimeMs + durationMs;
+        const scheduledEndTime = new Date(data.endTime).getTime();
+
+        const individualRemaining = Math.max(0, individualEndTime - Date.now());
+        const scheduledRemaining = Math.max(0, scheduledEndTime - Date.now());
+
+        // ✅ Use the NEARER time (whichever is smaller)
+        finalRemainingTime = Math.min(individualRemaining, scheduledRemaining);
+
+        console.log(
+          `⏰ Individual remaining: ${Math.floor(individualRemaining / 60000)}m`,
+        );
+        console.log(
+          `⏰ Scheduled remaining: ${Math.floor(scheduledRemaining / 60000)}m`,
+        );
+        console.log(
+          `⏰ Using nearer time: ${Math.floor(finalRemainingTime / 60000)}m`,
+        );
+
+        if (finalRemainingTime <= 0) {
+          // Time's up! Auto-submit
+          toast.error("⏰ Test time is over! Auto-submitting...");
+          setIsTestEnded(true);
+          handleSubmitTest(true);
+          return;
+        }
+
+        // ✅ Set the remaining time
+        setTimeRemaining(finalRemainingTime);
+        console.log(
+          `⏰ Remaining time: ${Math.floor(finalRemainingTime / 60000)}m ${Math.floor((finalRemainingTime % 60000) / 1000)}s`,
+        );
+
+        setTestDuration(durationMs);
+
+        // ✅ Clear any existing timer
+        if (testTimer) {
+          clearInterval(testTimer);
+        }
+
+        // ✅ Start countdown timer
         const timer = setInterval(() => {
           setTimeRemaining((prev) => {
             if (prev <= 1000) {
               clearInterval(timer);
               toast.error("⏰ Test time is over! Auto-submitting...");
+              setIsTestEnded(true);
               handleSubmitTest(true);
               return 0;
             }
@@ -293,6 +456,86 @@ const ProblemsList = () => {
       }
     } catch (error) {
       console.error("❌ Error getting test status:", error);
+      // If test-status fails, try attempt-status as fallback
+      try {
+        const attemptResponse = await fetch(
+          `${serverURL}/coding/attempt-status/${testId}`,
+          {
+            headers: {
+              Authorization: `Bearer ${token}`,
+            },
+          },
+        );
+        const attemptData = await attemptResponse.json();
+        if (attemptData.success && attemptData.startTime) {
+          const durationMs = 60 * 60 * 1000; // Default 60 minutes
+          const startTimeMs = new Date(attemptData.startTime).getTime();
+          const elapsed = Date.now() - startTimeMs;
+          const remainingTime = Math.max(0, durationMs - elapsed);
+          setTimeRemaining(remainingTime);
+          setTestDuration(durationMs);
+
+          // ✅ Start timer
+          if (testTimer) {
+            clearInterval(testTimer);
+          }
+          const timer = setInterval(() => {
+            setTimeRemaining((prev) => {
+              if (prev <= 1000) {
+                clearInterval(timer);
+                toast.error("⏰ Test time is over! Auto-submitting...");
+                setIsTestEnded(true);
+                handleSubmitTest(true);
+                return 0;
+              }
+              return prev - 1000;
+            });
+          }, 1000);
+          setTestTimer(timer);
+        }
+      } catch (fallbackError) {
+        console.error("❌ Fallback error:", fallbackError);
+      }
+    }
+  };
+
+  const loadExistingSolutions = async (attemptId) => {
+    try {
+      const token = localStorage.getItem("token");
+      const response = await fetch(
+        `${serverURL}/coding/get-attempt/${attemptId}`,
+        {
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        },
+      );
+
+      const data = await response.json();
+      if (data.success && data.attempt) {
+        const solutions = data.attempt.solutions || [];
+
+        // Mark problems as solved in localStorage
+        const userId = getUserId();
+        const currentTestId = localStorage.getItem("currentTestId");
+        if (currentTestId) {
+          const key = `user_${userId}_solvedProblems_${currentTestId}`;
+          const solvedIds = solutions
+            .filter((s) => s.status === "accepted")
+            .map((s) => s.problemId);
+          localStorage.setItem(key, JSON.stringify(solvedIds));
+          setSolvedProblems(solvedIds);
+          setTestSolvedProblems(solvedIds);
+
+          // Update stats
+          setStats((prev) => ({
+            ...prev,
+            solvedCount: solvedIds.length,
+          }));
+        }
+      }
+    } catch (error) {
+      console.error("Error loading existing solutions:", error);
     }
   };
 
@@ -500,7 +743,12 @@ const ProblemsList = () => {
       }
 
       if (event.data?.type === "USER_AUTH_DATA") {
-        const { role, testId: receivedTestId } = event.data.data;
+        const {
+          role,
+          testId: receivedTestId,
+          resumeMode,
+          attemptId,
+        } = event.data.data;
         if (role === "admin") {
           setIsAdmin(true);
           localStorage.setItem("role", "admin");
@@ -517,6 +765,13 @@ const ProblemsList = () => {
           checkSolvedProblems();
         }
         setAuthChecked(true);
+      }
+
+      if (resumeMode && attemptId) {
+        localStorage.setItem("resumeMode", "true");
+        localStorage.setItem("attemptId", attemptId);
+        // Load existing solutions
+        loadExistingSolutions(attemptId);
       }
     };
     window.addEventListener("message", handleMessage);

@@ -13,6 +13,7 @@ import AdminPanel from "./pages/AdminPanel";
 import ProblemDetail from "./pages/ProblemDetail";
 import Header from "./components/Header";
 import { Loader2, Code2 } from "lucide-react";
+import { useRole } from "./hooks/useRole";
 
 // ✅ Layout Component
 const Layout = ({ children }) => {
@@ -73,10 +74,13 @@ const LoadingScreen = ({ message = "Loading..." }) => {
 };
 
 function App() {
-  const [isAdmin, setIsAdmin] = useState(false);
+  // const [isAdmin, setIsAdmin] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [isDataLoaded, setIsDataLoaded] = useState(false);
   const [loadingMessage, setLoadingMessage] = useState("Initializing...");
+
+  // ✅ Use the useRole hook
+  const { isAdmin, loading: roleLoading, error } = useRole();
 
   useEffect(() => {
     let dataReceived = false;
@@ -152,8 +156,9 @@ function App() {
           localStorage.setItem("currentTestTitle", testTitle);
         }
 
-        setIsAdmin(role === "admin");
-
+        if (role) {
+          localStorage.setItem("role", role);
+        }
         // ✅ Data is now loaded
         setLoadingMessage("Loading your test content...");
 
