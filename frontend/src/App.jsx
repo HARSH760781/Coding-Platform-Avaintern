@@ -13,7 +13,7 @@ import AdminPanel from "./pages/AdminPanel";
 import ProblemDetail from "./pages/ProblemDetail";
 import Header from "./components/Header";
 import { Loader2, Code2 } from "lucide-react";
-import { useRole } from "./hooks/useRole";
+import { useRole } from "./Hooks/useRole";
 
 // ✅ Layout Component
 const Layout = ({ children }) => {
