@@ -942,6 +942,7 @@ router.get("/attempt-status/:testId", protect, async (req, res) => {
     let attemptStatus = null;
     let attemptData = null;
     let solutions = []; // ✅ Initialize solutions array
+    let startTime = null;
 
     // Check in TestResult
     const testResult = await TestResult.findOne({ testId: stringTestId });
@@ -955,6 +956,7 @@ router.get("/attempt-status/:testId", protect, async (req, res) => {
         hasAttempted = true;
         attemptStatus = student.status || "in_progress";
         solutions = student.solutions || []; // ✅ Get solutions from TestResult
+        startTime = student.startTime || null;
         attemptData = {
           startTime: student.startTime,
           endTime: student.endTime,
@@ -976,6 +978,7 @@ router.get("/attempt-status/:testId", protect, async (req, res) => {
           hasAttempted = true;
           attemptStatus = testAttempt.status || "in_progress";
           solutions = testAttempt.solutions || []; // ✅ Get solutions from CodingTestAttempt
+          startTime = testAttempt.startTime || null;
           attemptData = {
             startTime: testAttempt.startTime,
             endTime: testAttempt.endTime,
@@ -995,6 +998,7 @@ router.get("/attempt-status/:testId", protect, async (req, res) => {
       success: true,
       hasAttempted: hasAttempted,
       status: attemptStatus,
+      startTime: startTime,
       canAttempt: !hasAttempted || attemptStatus !== "submitted",
       message: hasAttempted
         ? attemptStatus === "submitted"
