@@ -10,6 +10,7 @@ import {
 import { Toaster } from "react-hot-toast";
 import ProblemsList from "./pages/ProblemsList";
 import AdminPanel from "./pages/AdminPanel";
+import { TimerProvider} from "./context/TimerContext";
 import ProblemDetail from "./pages/ProblemDetail";
 import Header from "./components/Header";
 import { Loader2, Code2 } from "lucide-react";
@@ -197,67 +198,69 @@ function App() {
   }
 
   return (
-    <Router>
-      <Toaster
-        position="top-right"
-        toastOptions={{
-          duration: 4000,
-          style: {
-            background: "#1f2937",
-            color: "#fff",
-            borderRadius: "12px",
-          },
-          success: {
-            iconTheme: {
-              primary: "#10b981",
-              secondary: "#fff",
+    <TimerProvider>
+      <Router>
+        <Toaster
+          position="top-right"
+          toastOptions={{
+            duration: 4000,
+            style: {
+              background: "#1f2937",
+              color: "#fff",
+              borderRadius: "12px",
             },
-          },
-          error: {
-            iconTheme: {
-              primary: "#ef4444",
-              secondary: "#fff",
+            success: {
+              iconTheme: {
+                primary: "#10b981",
+                secondary: "#fff",
+              },
             },
-          },
-        }}
-      />
-      <Routes>
-        <Route
-          path="/"
-          element={
-            <Layout>
-              <Navigate to="/problems" />
-            </Layout>
-          }
+            error: {
+              iconTheme: {
+                primary: "#ef4444",
+                secondary: "#fff",
+              },
+            },
+          }}
         />
-        <Route
-          path="/problems"
-          element={
-            <Layout>
-              <ProblemsList />
-            </Layout>
-          }
-        />
-        <Route
-          path="/problem/:problemId"
-          element={
-            <Layout>
-              <ProblemDetail />
-            </Layout>
-          }
-        />
-        {isAdmin && (
+        <Routes>
           <Route
-            path="/admin"
+            path="/"
             element={
               <Layout>
-                <AdminPanel />
+                <Navigate to="/problems" />
               </Layout>
             }
           />
-        )}
-      </Routes>
-    </Router>
+          <Route
+            path="/problems"
+            element={
+              <Layout>
+                <ProblemsList />
+              </Layout>
+            }
+          />
+          <Route
+            path="/problem/:problemId"
+            element={
+              <Layout>
+                <ProblemDetail />
+              </Layout>
+            }
+          />
+          {isAdmin && (
+            <Route
+              path="/admin"
+              element={
+                <Layout>
+                  <AdminPanel />
+                </Layout>
+              }
+            />
+          )}
+        </Routes>
+      </Router>
+    </TimerProvider>
   );
 }
 

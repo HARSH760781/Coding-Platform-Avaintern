@@ -1,6 +1,6 @@
 // frontend/src/pages/ProblemsList.jsx
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { getProblems } from "../services/api";
 import toast from "react-hot-toast";
@@ -28,6 +28,7 @@ import {
   Trophy,
   BarChart3,
 } from "lucide-react";
+import { useTimer } from "../context/TimerContext";
 
 // ✅ Utility: Get user ID
 const getUserId = () => localStorage.getItem("userId") || "anonymous";
@@ -49,28 +50,28 @@ const ProblemsList = () => {
   const [isAdmin, setIsAdmin] = useState(false);
   const [authChecked, setAuthChecked] = useState(false);
 
-  // ✅ Test tracking states
+  // ✅ USE TIMER CONTEXT (READ ONLY)
+  const {
+    timeRemaining,
+    isTestEnded,
+    isTimerRunning,
+    isEndedRef,
+    isSubmittingRef,
+    testId: contextTestId,
+  } = useTimer();
+
+  // ✅ Test tracking states (local to this component)
   const [testAttempt, setTestAttempt] = useState(null);
   const [showSubmitModal, setShowSubmitModal] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [testSolvedProblems, setTestSolvedProblems] = useState([]);
-  const [timeRemaining, setTimeRemaining] = useState(0);
-  const [testTimer, setTestTimer] = useState(null);
   const [isTestMode, setIsTestMode] = useState(false);
   const [testId, setTestId] = useState(null);
-  const [testDuration, setTestDuration] = useState(0);
-  const [isTestEnded, setIsTestEnded] = useState(false);
   const [isInitialLoad, setIsInitialLoad] = useState(true);
 
   const navigate = useNavigate();
   const serverURL = import.meta.env.VITE_API_URL || "";
-
-  // ✅ Main app URL
   const MAIN_APP_URL = "https://avainternlms.in";
-
-  // ============================================
-  // ✅ ALL FUNCTIONS DEFINED FIRST
-  // ============================================
 
   // ✅ Format time remaining
   const formatTime = (ms) => {
@@ -86,33 +87,23 @@ const ProblemsList = () => {
     return `${pad(minutes)}:${pad(seconds)}`;
   };
 
-  // ✅ Clear test timer data
-  const clearTestTimerData = (testIdToClear) => {
-    if (testTimer) {
-      clearInterval(testTimer);
-      setTestTimer(null);
-    }
-    if (testIdToClear) {
-      localStorage.removeItem(`test_start_time_${testIdToClear}`);
-    }
-    setTimeRemaining(0);
-    setIsTestEnded(true);
-  };
-
   // ✅ Redirect to Main App and Close Current Tab
-  const redirectToMainAppAndClose = () => {
+  const redirectToMainAppAndClose = useCallback(() => {
     try {
-      // ✅ Clear timer data
-      clearTestTimerData(testId);
-
-      // Clear test data
+      // Clear test data (timer is cleared by Header via context)
       localStorage.removeItem("currentTestId");
       localStorage.removeItem("testId");
       localStorage.removeItem("testTitle");
       localStorage.removeItem("currentTestTitle");
+
+      if (testId) {
+        localStorage.removeItem(`test_start_time_${testId}`);
+        localStorage.removeItem(`test_end_time_${testId}`);
+      }
+
       clearTestSolvedProblems();
 
-      // ✅ Send message to parent window to let it know test is complete
+      // Send message to parent window
       if (window.opener) {
         window.opener.postMessage(
           {
@@ -127,10 +118,10 @@ const ProblemsList = () => {
         );
       }
 
-      // ✅ Close the tab (this works since it was opened by window.open())
+      // Close the tab
       window.close();
 
-      // ✅ Fallback: If window.close() doesn't work, redirect to blank page
+      // Fallback
       setTimeout(() => {
         if (!window.closed) {
           window.location.href = "about:blank";
@@ -138,13 +129,12 @@ const ProblemsList = () => {
       }, 300);
     } catch (error) {
       console.error("❌ Error closing tab:", error);
-      // Last resort: redirect to blank page
       window.location.href = "about:blank";
     }
-  };
+  }, [testId]);
 
   // ✅ Clear test solved problems
-  const clearTestSolvedProblems = () => {
+  const clearTestSolvedProblems = useCallback(() => {
     const userId = getUserId();
     const currentTestId = localStorage.getItem("currentTestId");
     if (currentTestId) {
@@ -153,394 +143,144 @@ const ProblemsList = () => {
       setTestSolvedProblems([]);
       setSolvedProblems([]);
     }
-  };
+  }, []);
 
   // ✅ Confirm submission
-  const confirmSubmit = async (isAuto = false) => {
-    try {
-      setSubmitting(true);
-      const token = localStorage.getItem("token");
+  const confirmSubmit = useCallback(
+    async (isAuto = false) => {
+      if (isSubmittingRef.current) return;
 
-      const response = await fetch(`${serverURL}/coding/submit-test`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({ testId }),
-      });
+      try {
+        isSubmittingRef.current = true;
+        setSubmitting(true);
 
-      const data = await response.json();
+        const token = localStorage.getItem("token");
 
-      if (data.success) {
-        toast.success(
-          isAuto
-            ? "⏰ Test auto-submitted successfully! Closing..."
-            : "✅ Test submitted successfully! Closing...",
-        );
-        setShowSubmitModal(false);
-        // ✅ Clear timer
-        if (testTimer) clearInterval(testTimer);
-        setIsTestEnded(true);
-        clearTestSolvedProblems();
-        // ✅ Clear start time from localStorage
-        if (testId) {
-          localStorage.removeItem(`test_start_time_${testId}`);
-        }
-
-        setTimeout(() => {
-          redirectToMainAppAndClose();
-        }, 2000);
-      } else {
-        toast.error(data.error || "Failed to submit test");
-        setShowSubmitModal(false);
-      }
-    } catch (error) {
-      console.error("Error submitting test:", error);
-      toast.error("Failed to submit test");
-      setShowSubmitModal(false);
-    } finally {
-      setSubmitting(false);
-    }
-  };
-
-  // ✅ Handle test submission
-  const handleSubmitTest = async (isAuto = false) => {
-    if (submitting) return;
-
-    if (
-      testAttempt?.status === "submitted" ||
-      testAttempt?.status === "completed"
-    ) {
-      toast.info("Test has already been submitted");
-      return;
-    }
-
-    if (testAttempt?.status === "in_progress") {
-      if (isAuto) {
-        await confirmSubmit(true);
-        return;
-      }
-      setShowSubmitModal(true);
-    } else {
-      toast.error("Test is not in progress");
-    }
-  };
-
-  // ✅ Check test attempt with user isolation
-  const checkTestAttempt = async (testId) => {
-    try {
-      const token = localStorage.getItem("token");
-      const response = await fetch(
-        `${serverURL}/coding/attempt-status/${testId}`,
-        {
+        const response = await fetch(`${serverURL}/coding/submit-test`, {
+          method: "POST",
           headers: {
+            "Content-Type": "application/json",
             Authorization: `Bearer ${token}`,
           },
-        },
-      );
-
-      const data = await response.json();
-      // console.log("📊 ProblemsList - checkTestAttempt response:", data);
-
-      if (data.success) {
-        const status = data.status || "in_progress";
-        const solutions = data.solutions || [];
-        const passedCount = data.passedCount || 0;
-        const totalProblems = data.totalProblems || 0;
-        const percentage = data.percentage || 0;
-        const passed = data.passed || false;
-        const hasAttempted = data.hasAttempted || false;
-
-        setTestAttempt({
-          status: status,
-          solutions: solutions,
-          passedCount: passedCount,
-          totalProblems: totalProblems,
-          percentage: percentage,
-          passed: passed,
-          hasAttempted: hasAttempted,
-          message: data.message,
+          body: JSON.stringify({
+            testId,
+            endTime: new Date().toISOString(),
+            isAuto,
+          }),
         });
 
-        if (status === "submitted" || status === "completed") {
-          toast.error("You have already submitted this test!");
+        const data = await response.json();
+
+        if (data.success) {
+          toast.success(
+            isAuto
+              ? "⏰ Test auto-submitted successfully! Closing..."
+              : "✅ Test submitted successfully! Closing...",
+          );
+          setShowSubmitModal(false);
+
+          // Clear start time from localStorage
+          if (testId) {
+            localStorage.removeItem(`test_start_time_${testId}`);
+          }
+
           setTimeout(() => {
             redirectToMainAppAndClose();
-          }, 1500);
-        }
-      }
-    } catch (error) {
-      console.error("❌ ProblemsList - Error checking attempt:", error);
-    }
-  };
-
-  // ✅ Start test timer for auto-submit - FIXED
-  const startTestTimer = async (testId) => {
-    try {
-      const token = localStorage.getItem("token");
-
-      // ✅ Step 1: Get test status from backend
-      const response = await fetch(
-        `${serverURL}/coding/test-status/${testId}`,
-        {
-          headers: {
-            Authorization: `Bearer ${token}`,
-          },
-        },
-      );
-
-      const data = await response.json();
-
-      if (data.success && data.status === "active") {
-        // ✅ Get duration from the test (in minutes, convert to ms)
-        const durationMs = (data.duration || 60) * 60 * 1000;
-
-        // ✅ Key for localStorage
-        const startTimeKey = `test_start_time_${testId}`;
-
-        // ✅ Try localStorage first
-        let testStartTime = localStorage.getItem(startTimeKey);
-        let startTimeMs;
-        let finalRemainingTime;
-
-        if (testStartTime) {
-          // ✅ Use localStorage start time
-          startTimeMs = parseInt(testStartTime);
-          console.log(
-            `⏰ Found start time in localStorage: ${new Date(startTimeMs).toLocaleTimeString()}`,
-          );
+          }, 2000);
         } else {
-          // ✅ Fallback: Get startTime from backend
-          console.log("⏰ No localStorage start time, checking backend...");
-
-          try {
-            const attemptResponse = await fetch(
-              `${serverURL}/coding/attempt-status/${testId}`,
-              {
-                headers: {
-                  Authorization: `Bearer ${token}`,
-                },
-              },
-            );
-
-            const attemptData = await attemptResponse.json();
-
-            if (attemptData.success && attemptData.startTime) {
-              // ✅ Use backend start time
-              startTimeMs = new Date(attemptData.startTime).getTime();
-
-              // ✅ Save to localStorage for future use
-              localStorage.setItem(startTimeKey, startTimeMs.toString());
-              console.log(
-                `⏰ Recovered start time from backend: ${new Date(startTimeMs).toLocaleTimeString()}`,
-              );
-            } else {
-              // ✅ No start time found anywhere - user hasn't started
-              console.log("⏰ No start time found, starting fresh...");
-              const now = Date.now();
-              localStorage.setItem(startTimeKey, now.toString());
-              startTimeMs = now;
-              setTimeRemaining(durationMs);
-              setTestDuration(durationMs);
-
-              // ✅ Start timer
-              if (testTimer) {
-                clearInterval(testTimer);
-              }
-              const timer = setInterval(() => {
-                setTimeRemaining((prev) => {
-                  if (prev <= 1000) {
-                    clearInterval(timer);
-                    toast.error("⏰ Test time is over! Auto-submitting...");
-                    setIsTestEnded(true);
-                    handleSubmitTest(true);
-                    return 0;
-                  }
-                  return prev - 1000;
-                });
-              }, 1000);
-              setTestTimer(timer);
-              return;
-            }
-          } catch (error) {
-            console.error("❌ Error fetching attempt status:", error);
-            // Fallback: start fresh
-            const now = Date.now();
-            localStorage.setItem(startTimeKey, now.toString());
-            startTimeMs = now;
-            setTimeRemaining(durationMs);
-            setTestDuration(durationMs);
-
-            // ✅ Start timer
-            if (testTimer) {
-              clearInterval(testTimer);
-            }
-            const timer = setInterval(() => {
-              setTimeRemaining((prev) => {
-                if (prev <= 1000) {
-                  clearInterval(timer);
-                  toast.error("⏰ Test time is over! Auto-submitting...");
-                  setIsTestEnded(true);
-                  handleSubmitTest(true);
-                  return 0;
-                }
-                return prev - 1000;
-              });
-            }, 1000);
-            setTestTimer(timer);
-            return;
-          }
+          toast.error(data.error || "Failed to submit test");
+          setShowSubmitModal(false);
         }
+      } catch (error) {
+        console.error("Error submitting test:", error);
+        toast.error("Failed to submit test");
+        setShowSubmitModal(false);
+      } finally {
+        setSubmitting(false);
+        isSubmittingRef.current = false;
+      }
+    },
+    [testId, serverURL, redirectToMainAppAndClose, isSubmittingRef],
+  );
 
-        // ✅ Calculate BOTH remaining times
-        const individualEndTime = startTimeMs + durationMs;
-        const scheduledEndTime = new Date(data.endTime).getTime();
+  // ✅ Handle test submission
+  const handleSubmitTest = useCallback(
+    async (isAuto = false) => {
+      if (isSubmittingRef.current) return;
 
-        const individualRemaining = Math.max(0, individualEndTime - Date.now());
-        const scheduledRemaining = Math.max(0, scheduledEndTime - Date.now());
+      if (
+        testAttempt?.status === "submitted" ||
+        testAttempt?.status === "completed"
+      ) {
+        toast.info("Test has already been submitted");
+        return;
+      }
 
-        // ✅ Use the NEARER time (whichever is smaller)
-        finalRemainingTime = Math.min(individualRemaining, scheduledRemaining);
-
-        console.log(
-          `⏰ Individual remaining: ${Math.floor(individualRemaining / 60000)}m`,
-        );
-        console.log(
-          `⏰ Scheduled remaining: ${Math.floor(scheduledRemaining / 60000)}m`,
-        );
-        console.log(
-          `⏰ Using nearer time: ${Math.floor(finalRemainingTime / 60000)}m`,
-        );
-
-        if (finalRemainingTime <= 0) {
-          // Time's up! Auto-submit
-          toast.error("⏰ Test time is over! Auto-submitting...");
-          setIsTestEnded(true);
-          handleSubmitTest(true);
+      if (testAttempt?.status === "in_progress") {
+        if (isAuto) {
+          await confirmSubmit(true);
           return;
         }
-
-        // ✅ Set the remaining time
-        setTimeRemaining(finalRemainingTime);
-        console.log(
-          `⏰ Remaining time: ${Math.floor(finalRemainingTime / 60000)}m ${Math.floor((finalRemainingTime % 60000) / 1000)}s`,
-        );
-
-        setTestDuration(durationMs);
-
-        // ✅ Clear any existing timer
-        if (testTimer) {
-          clearInterval(testTimer);
-        }
-
-        // ✅ Start countdown timer
-        const timer = setInterval(() => {
-          setTimeRemaining((prev) => {
-            if (prev <= 1000) {
-              clearInterval(timer);
-              toast.error("⏰ Test time is over! Auto-submitting...");
-              setIsTestEnded(true);
-              handleSubmitTest(true);
-              return 0;
-            }
-            return prev - 1000;
-          });
-        }, 1000);
-
-        setTestTimer(timer);
-      } else if (data.status === "ended") {
-        toast.error("⏰ Test has already ended!");
-        setIsTestEnded(true);
-        handleSubmitTest(true);
+        setShowSubmitModal(true);
+      } else {
+        toast.error("Test is not in progress");
       }
-    } catch (error) {
-      console.error("❌ Error getting test status:", error);
-      // If test-status fails, try attempt-status as fallback
+    },
+    [testAttempt, confirmSubmit, isSubmittingRef],
+  );
+
+  // ✅ Check test attempt
+  const checkTestAttempt = useCallback(
+    async (testIdToCheck) => {
       try {
-        const attemptResponse = await fetch(
-          `${serverURL}/coding/attempt-status/${testId}`,
+        const token = localStorage.getItem("token");
+        const response = await fetch(
+          `${serverURL}/coding/attempt-status/${testIdToCheck}`,
           {
             headers: {
               Authorization: `Bearer ${token}`,
             },
           },
         );
-        const attemptData = await attemptResponse.json();
-        if (attemptData.success && attemptData.startTime) {
-          const durationMs = 60 * 60 * 1000; // Default 60 minutes
-          const startTimeMs = new Date(attemptData.startTime).getTime();
-          const elapsed = Date.now() - startTimeMs;
-          const remainingTime = Math.max(0, durationMs - elapsed);
-          setTimeRemaining(remainingTime);
-          setTestDuration(durationMs);
 
-          // ✅ Start timer
-          if (testTimer) {
-            clearInterval(testTimer);
+        const data = await response.json();
+
+        if (data.success) {
+          const status = data.status || "in_progress";
+          const solutions = data.solutions || [];
+          const passedCount = data.passedCount || 0;
+          const totalProblems = data.totalProblems || 0;
+          const percentage = data.percentage || 0;
+          const passed = data.passed || false;
+          const hasAttempted = data.hasAttempted || false;
+
+          setTestAttempt({
+            status: status,
+            solutions: solutions,
+            passedCount: passedCount,
+            totalProblems: totalProblems,
+            percentage: percentage,
+            passed: passed,
+            hasAttempted: hasAttempted,
+            message: data.message,
+          });
+
+          if (status === "submitted" || status === "completed") {
+            toast.error("You have already submitted this test!");
+            setTimeout(() => {
+              redirectToMainAppAndClose();
+            }, 1500);
           }
-          const timer = setInterval(() => {
-            setTimeRemaining((prev) => {
-              if (prev <= 1000) {
-                clearInterval(timer);
-                toast.error("⏰ Test time is over! Auto-submitting...");
-                setIsTestEnded(true);
-                handleSubmitTest(true);
-                return 0;
-              }
-              return prev - 1000;
-            });
-          }, 1000);
-          setTestTimer(timer);
         }
-      } catch (fallbackError) {
-        console.error("❌ Fallback error:", fallbackError);
+      } catch (error) {
+        console.error("❌ ProblemsList - Error checking attempt:", error);
       }
-    }
-  };
-
-  const loadExistingSolutions = async (attemptId) => {
-    try {
-      const token = localStorage.getItem("token");
-      const response = await fetch(
-        `${serverURL}/coding/get-attempt/${attemptId}`,
-        {
-          headers: {
-            Authorization: `Bearer ${token}`,
-          },
-        },
-      );
-
-      const data = await response.json();
-      if (data.success && data.attempt) {
-        const solutions = data.attempt.solutions || [];
-
-        // Mark problems as solved in localStorage
-        const userId = getUserId();
-        const currentTestId = localStorage.getItem("currentTestId");
-        if (currentTestId) {
-          const key = `user_${userId}_solvedProblems_${currentTestId}`;
-          const solvedIds = solutions
-            .filter((s) => s.status === "accepted")
-            .map((s) => s.problemId);
-          localStorage.setItem(key, JSON.stringify(solvedIds));
-          setSolvedProblems(solvedIds);
-          setTestSolvedProblems(solvedIds);
-
-          // Update stats
-          setStats((prev) => ({
-            ...prev,
-            solvedCount: solvedIds.length,
-          }));
-        }
-      }
-    } catch (error) {
-      console.error("Error loading existing solutions:", error);
-    }
-  };
+    },
+    [serverURL, redirectToMainAppAndClose],
+  );
 
   // ✅ Fetch problems
-  const fetchProblems = async () => {
+  const fetchProblems = useCallback(async () => {
     try {
       const response = await getProblems();
       const problemsData = response.data.problems || [];
@@ -564,53 +304,94 @@ const ProblemsList = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
   // ✅ Load test-specific solved problems
-  const checkSolvedProblems = (testIdOverride = null) => {
+  const checkSolvedProblems = useCallback((testIdOverride = null) => {
     const userId = getUserId();
-    // Use the override if provided, otherwise get from localStorage
     const currentTestId =
       testIdOverride || localStorage.getItem("currentTestId");
 
     let solved = [];
     if (currentTestId) {
-      // ✅ Test-specific solved problems
       const key = `user_${userId}_solvedProblems_${currentTestId}`;
       solved = JSON.parse(localStorage.getItem(key) || "[]");
       setTestSolvedProblems(solved);
       setSolvedProblems(solved);
     } else {
-      // ✅ Global solved (for practice mode)
       const key = `user_${userId}_solvedProblems_global`;
       solved = JSON.parse(localStorage.getItem(key) || "[]");
       setSolvedProblems(solved);
       setTestSolvedProblems([]);
     }
 
-    // ✅ Update stats with solved count
     setStats((prev) => ({
       ...prev,
       solvedCount: solved.length,
     }));
-  };
+  }, []);
+
+  // ✅ Load existing solutions
+  const loadExistingSolutions = useCallback(
+    async (attemptId) => {
+      try {
+        const token = localStorage.getItem("token");
+        const response = await fetch(
+          `${serverURL}/coding/get-attempt/${attemptId}`,
+          {
+            headers: {
+              Authorization: `Bearer ${token}`,
+            },
+          },
+        );
+
+        const data = await response.json();
+        if (data.success && data.attempt) {
+          const solutions = data.attempt.solutions || [];
+
+          const userId = getUserId();
+          const currentTestId = localStorage.getItem("currentTestId");
+          if (currentTestId) {
+            const key = `user_${userId}_solvedProblems_${currentTestId}`;
+            const solvedIds = solutions
+              .filter((s) => s.status === "accepted")
+              .map((s) => s.problemId);
+            localStorage.setItem(key, JSON.stringify(solvedIds));
+            setSolvedProblems(solvedIds);
+            setTestSolvedProblems(solvedIds);
+
+            setStats((prev) => ({
+              ...prev,
+              solvedCount: solvedIds.length,
+            }));
+          }
+        }
+      } catch (error) {
+        console.error("Error loading existing solutions:", error);
+      }
+    },
+    [serverURL],
+  );
 
   // ✅ Get problem stats
-  const getProblemStats = (problem) => {
-    const isSolved = solvedProblems.includes(problem.problemId);
-    const acceptanceRate = problem.acceptanceRate || 0;
-    const submissions = problem.totalSubmissions || 0;
-    return { isSolved, acceptanceRate, submissions };
-  };
+  const getProblemStats = useCallback(
+    (problem) => {
+      const isSolved = solvedProblems.includes(problem.problemId);
+      const acceptanceRate = problem.acceptanceRate || 0;
+      const submissions = problem.totalSubmissions || 0;
+      return { isSolved, acceptanceRate, submissions };
+    },
+    [solvedProblems],
+  );
 
   // ✅ Get progress percentage
-  const getProgressPercentage = () => {
+  const getProgressPercentage = useCallback(() => {
     if (stats.total === 0) return 0;
     return Math.round((solvedProblems.length / stats.total) * 100);
-  };
+  }, [stats.total, solvedProblems.length]);
 
   // ✅ Get difficulty styles
-  const getDifficultyStyles = (difficulty) => {
+  const getDifficultyStyles = useCallback((difficulty) => {
     switch (difficulty) {
       case "Easy":
         return {
@@ -649,26 +430,25 @@ const ProblemsList = () => {
           icon: <Circle className="w-3 h-3 text-gray-400" />,
         };
     }
-  };
+  }, []);
 
   // ✅ Calculate success rate
-  const calculateSuccessRate = () => {
+  const calculateSuccessRate = useCallback(() => {
     if (problems.length === 0) return 0;
     const totalAcceptance = problems.reduce(
       (acc, p) => acc + (p.acceptanceRate || 0),
       0,
     );
     return Math.round(totalAcceptance / problems.length);
-  };
+  }, [problems]);
 
   // ✅ Get solutions count
   const solutionsCount = testAttempt?.solutions?.length || 0;
 
   // ============================================
-  // ✅ useEffect HOOKS (Now functions are defined)
+  // ✅ INITIALIZATION
   // ============================================
 
-  // ✅ Initial load effect
   useEffect(() => {
     const initializeApp = async () => {
       try {
@@ -683,11 +463,10 @@ const ProblemsList = () => {
           localStorage.setItem("currentTestId", finalTestId);
         }
 
-        // ✅ Step 1: Check admin status (sync - fast)
+        // Check admin status
         try {
           const role = localStorage.getItem("role");
-          const isAdminUser = role === "admin";
-          setIsAdmin(isAdminUser);
+          setIsAdmin(role === "admin");
           setAuthChecked(true);
         } catch (error) {
           console.error("Error checking admin status:", error);
@@ -695,134 +474,42 @@ const ProblemsList = () => {
           setAuthChecked(true);
         }
 
-        // ✅ Step 2: Fetch problems FIRST (WAIT for it to complete)
-        console.log("📚 Fetching problems...");
+        // Fetch problems
         await fetchProblems();
-        console.log("✅ Problems fetched successfully");
 
-        // ✅ Step 3: Load solved problems (WAIT)
-        console.log("🔍 Loading solved problems...");
+        // Load solved problems
         await checkSolvedProblems(finalTestId);
-        console.log("✅ Solved problems loaded");
 
-        // ✅ Step 4: If in test mode, check attempt and start timer
+        // If in test mode, check attempt
         if (finalTestId) {
-          console.log("🧪 Checking test attempt...");
           await checkTestAttempt(finalTestId);
-          console.log("✅ Test attempt checked");
-
-          console.log("⏰ Starting timer...");
-          await startTestTimer(finalTestId);
-          console.log("✅ Timer started");
+          // Timer is started by Header, not here!
         }
 
-        console.log("🎉 App initialized successfully!");
+        // console.log("🎉 App initialized successfully!");
       } catch (error) {
         console.error("❌ Error initializing app:", error);
         toast.error("Failed to load test. Please refresh.");
       }
     };
 
-    // ✅ Start the initialization
     initializeApp();
 
-    // ✅ Event listeners (these can stay as they are)
-    const handleStorageChange = (e) => {
-      if (e.key === "role" || e.key === "user" || e.key === "token") {
-        try {
-          const role = localStorage.getItem("role");
-          const isAdminUser = role === "admin";
-          setIsAdmin(isAdminUser);
-          setAuthChecked(true);
-        } catch (error) {
-          console.error("Error checking admin status:", error);
-          setIsAdmin(false);
-          setAuthChecked(true);
-        }
-      }
-      if (e.key === "currentTestId") {
-        const newTestId = localStorage.getItem("currentTestId");
-        if (newTestId) {
-          setTestId(newTestId);
-          setIsTestMode(true);
-          checkTestAttempt(newTestId);
-          startTestTimer(newTestId);
-          checkSolvedProblems(newTestId);
-        }
-      }
-      if (e.key && e.key.includes("_solvedProblems_")) {
-        const currentTestId = localStorage.getItem("currentTestId");
-        checkSolvedProblems(currentTestId);
-      }
-    };
-    window.addEventListener("storage", handleStorageChange);
-
-    const handleMessage = (event) => {
-      const allowedOrigins = [
-        "https://avainternlms.in",
-        "http://localhost:5173",
-        "http://localhost:3000",
-        "https://coding-platform-avaintern-1.onrender.com",
-      ];
-
-      if (!allowedOrigins.includes(event.origin)) {
-        return;
-      }
-
-      if (event.data?.type === "USER_AUTH_DATA") {
-        const {
-          role,
-          testId: receivedTestId,
-          resumeMode,
-          attemptId,
-        } = event.data.data;
-
-        if (role === "admin") {
-          setIsAdmin(true);
-          localStorage.setItem("role", "admin");
-        } else {
-          setIsAdmin(false);
-          localStorage.setItem("role", "user");
-        }
-
-        if (receivedTestId) {
-          setTestId(receivedTestId);
-          setIsTestMode(true);
-          localStorage.setItem("currentTestId", receivedTestId);
-          checkTestAttempt(receivedTestId);
-          startTestTimer(receivedTestId);
-          checkSolvedProblems();
-        }
-        setAuthChecked(true);
-      }
-
-      if (resumeMode && attemptId) {
-        localStorage.setItem("resumeMode", "true");
-        localStorage.setItem("attemptId", attemptId);
-        loadExistingSolutions(attemptId);
-      }
-    };
-    window.addEventListener("message", handleMessage);
-
+    // ✅ Cleanup - no timer to clear here (Header handles it)
     return () => {
-      window.removeEventListener("storage", handleStorageChange);
-      window.removeEventListener("message", handleMessage);
-      if (testTimer) clearInterval(testTimer);
+      // Nothing to clean up here
     };
-  }, []);
+  }, []); // Run once
 
   // ✅ Refresh event listener
   useEffect(() => {
     const handleTestRefresh = () => {
       const currentTestId = localStorage.getItem("currentTestId");
       if (currentTestId) {
-        // console.log("🔄 ProblemsList - Test refresh event received!");
         setTestId(currentTestId);
         setIsTestMode(true);
         setIsInitialLoad(false);
         checkTestAttempt(currentTestId);
-        startTestTimer(currentTestId);
-        // ✅ Pass the testId directly to ensure correct loading
         checkSolvedProblems(currentTestId);
         fetchProblems();
       }
@@ -833,7 +520,7 @@ const ProblemsList = () => {
     return () => {
       window.removeEventListener("refreshTestAttempt", handleTestRefresh);
     };
-  }, []);
+  }, [checkTestAttempt, checkSolvedProblems, fetchProblems]);
 
   // ============================================
   // ✅ RENDER
@@ -843,12 +530,8 @@ const ProblemsList = () => {
     return (
       <div className="flex items-center justify-center min-h-screen bg-gradient-to-br from-gray-50 via-white to-indigo-50/30">
         <div className="text-center relative">
-          {/* Animated background glow */}
           <div className="absolute -inset-20 bg-gradient-to-r from-indigo-500/10 via-purple-500/10 to-pink-500/10 rounded-full blur-3xl animate-pulse"></div>
-
-          {/* Main loader container */}
           <div className="relative">
-            {/* Outer rotating ring with gradient */}
             <div className="w-20 h-20 mx-auto relative">
               <div className="absolute inset-0 rounded-full border-4 border-transparent border-t-indigo-600 border-r-purple-500 animate-spin"></div>
               <div
@@ -859,16 +542,12 @@ const ProblemsList = () => {
                 className="absolute inset-4 rounded-full border-4 border-transparent border-t-pink-400 border-r-indigo-300 animate-spin animation-delay-400"
                 style={{ animationDuration: "1.5s" }}
               ></div>
-
-              {/* Center icon with pulse */}
               <div className="absolute inset-0 flex items-center justify-center">
                 <div className="w-8 h-8 bg-gradient-to-br from-indigo-600 to-purple-600 rounded-xl flex items-center justify-center shadow-lg shadow-indigo-500/30 animate-pulse">
                   <Code2 className="w-5 h-5 text-white" />
                 </div>
               </div>
             </div>
-
-            {/* Loading text with shimmer effect */}
             <div className="mt-8 space-y-3">
               <div className="relative inline-block">
                 <p className="text-lg font-semibold bg-gradient-to-r from-indigo-600 via-purple-600 to-indigo-600 bg-[length:200%_auto] text-transparent bg-clip-text animate-shimmer">
@@ -876,8 +555,6 @@ const ProblemsList = () => {
                 </p>
                 <span className="absolute -inset-x-0 -inset-y-2 bg-gradient-to-r from-transparent via-white/20 to-transparent animate-shimmer"></span>
               </div>
-
-              {/* Animated dots */}
               <div className="flex items-center justify-center gap-2">
                 <div
                   className="w-2 h-2 bg-indigo-500 rounded-full animate-bounce"
@@ -896,8 +573,6 @@ const ProblemsList = () => {
                   style={{ animationDelay: "450ms" }}
                 ></div>
               </div>
-
-              {/* Subtle hint text */}
               <p className="text-xs text-gray-400 font-medium tracking-wide animate-pulse">
                 Preparing your coding arena...
               </p>
@@ -987,12 +662,12 @@ const ProblemsList = () => {
             <div className="flex items-center gap-3">
               <div className="flex items-center gap-1 text-red-600">
                 <Timer className="w-4 h-4" />
-                <span className="font-mono font-bold text-sm">
+                <span className="font-mono font-bold text-xl">
                   {formatTime(timeRemaining)}
                 </span>
               </div>
 
-              {/* ✅ Submit Button - Always Enabled */}
+              {/* ✅ Submit Button */}
               {/* <button
                 onClick={() => handleSubmitTest(false)}
                 disabled={submitting}
