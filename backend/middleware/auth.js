@@ -61,13 +61,13 @@ export const protect = async (req, res, next) => {
       });
     }
 
-    console.log("🔑 Token received:", token.substring(0, 20) + "...");
+    // console.log("🔑 Token received:", token.substring(0, 20) + "...");
 
     // Verify token
     let decoded;
     try {
       decoded = jwt.verify(token, process.env.JWT_SECRET);
-      console.log("✅ Token verified:", decoded);
+      // console.log("✅ Token verified:", decoded);
     } catch (error) {
       console.error("❌ Token verification failed:", error.message);
       if (error.name === "JsonWebTokenError") {
@@ -96,11 +96,11 @@ export const protect = async (req, res, next) => {
       });
     }
 
-    console.log("✅ User found:", {
-      id: user._id,
-      email: user.email,
-      role: user.role,
-    });
+    // console.log("✅ User found:", {
+    //   id: user._id,
+    //   email: user.email,
+    //   role: user.role,
+    // });
 
     // ✅ Attach user to request
     req.user = user;

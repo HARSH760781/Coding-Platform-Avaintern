@@ -3,7 +3,7 @@
 export const validateSubmission = (req, res, next) => {
   const { problemId, code, language, testId } = req.body;
 
-  // ✅ Check for empty code
+  // ✅ Check for completely empty code
   if (!code || code.trim() === "") {
     return res.status(400).json({
       success: false,
@@ -11,34 +11,11 @@ export const validateSubmission = (req, res, next) => {
     });
   }
 
-  // ✅ Check minimum code length
-  if (code.trim().length < 3) {
+  // ✅ Check minimum code length (allow very short code)
+  if (code.trim().length < 2) {
     return res.status(400).json({
       success: false,
       error: "Code is too short. Please write a proper solution.",
-    });
-  }
-
-  // ✅ Check for boilerplate code
-  const boilerplatePatterns = [
-    /^\/\/.*/m,
-    /^\s*$/m,
-    /^class\s+\w+\s*{[\s\n]*}$/m,
-    /^function\s+\w+\s*\([\s\n]*\)\s*{[\s\n]*}$/m,
-    /^def\s+\w+\s*\([\s\n]*\)[\s\n]*:[\s\n]*(pass|...)$/m,
-    /^int\s+main\s*\([\s\n]*\)\s*{[\s\n]*return\s+0;[\s\n]*}$/m,
-    /^public\s+class\s+\w+\s*{[\s\n]*public\s+static\s+void\s+main\s*\(String\[\]\s*\w+\)\s*{[\s\n]*}$/m,
-  ];
-
-  const isBoilerplate = boilerplatePatterns.some((pattern) =>
-    pattern.test(code),
-  );
-
-  if (isBoilerplate) {
-    return res.status(400).json({
-      success: false,
-      error:
-        "Please write actual code. Submitting boilerplate or empty code is not allowed.",
     });
   }
 
@@ -61,6 +38,11 @@ export const validateSubmission = (req, res, next) => {
     "csharp",
     "go",
     "rust",
+    "typescript",
+    "php",
+    "ruby",
+    "swift",
+    "kotlin",
   ];
   if (!validLanguages.includes(language)) {
     return res.status(400).json({
@@ -82,12 +64,32 @@ export const validateSubmission = (req, res, next) => {
     });
   }
 
+  // ✅ Validate problemId
+  if (!problemId || problemId === "undefined" || problemId === "null") {
+    return res.status(400).json({
+      success: false,
+      error: "Invalid problem ID.",
+    });
+  }
+
+  // ❌ BOILERPLATE CHECK REMOVED - Now allows any code
+  // Users can submit simple code like "Hello World", "print('hi')", etc.
+  // Only empty submissions are blocked
+
   next();
 };
 
 export const validateTestCreation = (req, res, next) => {
-  const { title, subject, topic, college, duration, startTime, endTime } =
-    req.body;
+  const {
+    title,
+    subject,
+    topic,
+    college,
+    duration,
+    startTime,
+    endTime,
+    problems,
+  } = req.body;
 
   const errors = [];
 
@@ -111,6 +113,9 @@ export const validateTestCreation = (req, res, next) => {
   }
   if (!endTime) {
     errors.push("End time is required");
+  }
+  if (!problems || !Array.isArray(problems) || problems.length === 0) {
+    errors.push("At least one problem is required");
   }
 
   if (errors.length > 0) {
