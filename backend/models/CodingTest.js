@@ -44,6 +44,10 @@ const codingTestSchema = new mongoose.Schema({
     type: Number,
     required: true,
   },
+  totalQuestions: {
+    type: Number,
+    default: 0,
+  },
   passingPercentage: {
     type: Number,
     default: 40,

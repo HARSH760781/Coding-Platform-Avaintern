@@ -672,6 +672,7 @@ router.get("/test/:testId/results", protect, async (req, res) => {
         passedCount: test.passedCount,
         percentage: test.percentage,
         passed: test.passed,
+
         solutions: test.solutions,
       },
       userStats: {
@@ -1153,28 +1154,28 @@ router.get("/test-status/:testId", protect, async (req, res) => {
   try {
     const { testId } = req.params;
 
-    console.log(`🔍 Looking for test status with ID: ${testId}`);
+    // console.log(`🔍 Looking for test status with ID: ${testId}`);
 
     // ✅ Try to find by _id first
     let codingTest = null;
 
     if (mongoose.Types.ObjectId.isValid(testId)) {
       codingTest = await CodingTest.findById(testId);
-      console.log(`🔍 Searching by _id: ${codingTest ? "Found" : "Not found"}`);
+      // console.log(`🔍 Searching by _id: ${codingTest ? "Found" : "Not found"}`);
     }
 
     if (!codingTest) {
       codingTest = await CodingTest.findOne({ testId: testId });
-      console.log(
-        `🔍 Searching by testId string: ${codingTest ? "Found" : "Not found"}`,
-      );
+      // console.log(
+      //   `🔍 Searching by testId string: ${codingTest ? "Found" : "Not found"}`,
+      // );
     }
 
     if (!codingTest) {
       codingTest = await CodingTest.findOne({ testId: `TEST_${testId}` });
-      console.log(
-        `🔍 Searching by TEST_ prefix: ${codingTest ? "Found" : "Not found"}`,
-      );
+      // console.log(
+      //   `🔍 Searching by TEST_ prefix: ${codingTest ? "Found" : "Not found"}`,
+      // );
     }
 
     if (!codingTest) {
@@ -1184,7 +1185,7 @@ router.get("/test-status/:testId", protect, async (req, res) => {
       });
     }
 
-    console.log(`✅ Found CodingTest: ${codingTest.title}`);
+    // console.log(`✅ Found CodingTest: ${codingTest.title}`);
 
     const now = new Date();
     const startTime = new Date(codingTest.startTime);
@@ -1223,8 +1224,6 @@ router.post("/submit-test", protect, async (req, res) => {
     const userId = req.userId;
 
     console.log(`📤 Submitting test: ${testId} for user: ${userId}`);
-    console.log(`📤 testId type: ${typeof testId}`);
-    console.log(`📤 userId type: ${typeof userId}`);
     console.log(`📤 isAuto: ${isAuto}`);
 
     // ✅ Find the coding test
@@ -1273,10 +1272,10 @@ router.post("/submit-test", protect, async (req, res) => {
         studentData = testResult.students[studentIndex];
         testStatus = studentData.status || "in_progress";
         solutions = studentData.solutions || [];
-        console.log(
-          `✅ Found student in TestResult with status: ${testStatus}`,
-        );
-        console.log(`📊 Solutions found: ${solutions.length}`);
+        // console.log(
+        //   `✅ Found student in TestResult with status: ${testStatus}`,
+        // );
+        // console.log(`📊 Solutions found: ${solutions.length}`);
       }
     }
 
@@ -1286,9 +1285,9 @@ router.post("/submit-test", protect, async (req, res) => {
     let userAttempt = await CodingTestAttempt.findOne({ userId: userId });
     let foundInAttempt = false;
     let attemptTestIndex = -1;
-
+    let testAttempt = null;
     if (userAttempt) {
-      console.log(`📊 User attempts found: ${userAttempt.tests.length}`);
+      // console.log(`📊 User attempts found: ${userAttempt.tests.length}`);
 
       // Try to find by string testId
       attemptTestIndex = userAttempt.tests.findIndex(
@@ -1307,7 +1306,7 @@ router.post("/submit-test", protect, async (req, res) => {
 
       if (attemptTestIndex !== -1) {
         foundInAttempt = true;
-        const testAttempt = userAttempt.tests[attemptTestIndex];
+        testAttempt = userAttempt.tests[attemptTestIndex];
         testStatus = testAttempt.status || "in_progress";
         solutions = testAttempt.solutions || [];
         // console.log(
@@ -1321,13 +1320,13 @@ router.post("/submit-test", protect, async (req, res) => {
     // ✅ STEP 3: If not found in either, return error
     // ============================================
     if (!foundInTestResult && !foundInAttempt) {
-      console.log(
-        "❌ Test not found in either TestResult or CodingTestAttempt!",
-      );
+      // console.log(
+      //   "❌ Test not found in either TestResult or CodingTestAttempt!",
+      // );
 
       return res.status(404).json({
         success: false,
-        error: "No test attempt found. Please start the test first.",
+        error: "No test attempt found. Please start & attempt the test first.",
         details: {
           testId: testId,
           stringTestId: stringTestId,
@@ -1351,18 +1350,22 @@ router.post("/submit-test", protect, async (req, res) => {
     // ============================================
     // ✅ STEP 5: Calculate stats from solutions
     // ============================================
+
     const acceptedSolutions = solutions.filter((s) => s.status === "accepted");
     const totalSolved = acceptedSolutions.length;
-    const totalProblems = solutions.length || codingTest.totalQuestions || 0;
+    const totalProblems = codingTest.totalQuestions || solutions.length || 0;
     const percentage =
       totalProblems > 0 ? (totalSolved / totalProblems) * 100 : 0;
     const passed = percentage >= (codingTest.passingPercentage || 40);
 
-    console.log(`📊 Calculated stats:`);
-    console.log(`  - Total Solved: ${totalSolved}`);
-    console.log(`  - Total Problems: ${totalProblems}`);
-    console.log(`  - Percentage: ${percentage}%`);
-    console.log(`  - Passed: ${passed}`);
+    let timeTaken = 0;
+    const startTime = studentData?.startTime || testAttempt?.startTime;
+    if (startTime) {
+      const end = new Date(endTime || new Date());
+      const start = new Date(startTime);
+      timeTaken = Math.round((end - start) / (1000 * 60)); // Convert to minutes
+    }
+    // console.log(`📊 Time Taken: ${timeTaken} minutes`);
 
     // ============================================
     // ✅ STEP 6: Update TestResult
@@ -1382,6 +1385,8 @@ router.post("/submit-test", protect, async (req, res) => {
         student.percentage = percentage;
         student.passed = passed;
         student.submittedAt = new Date();
+        student.solutions = solutions;
+        student.timeTaken = timeTaken;
 
         // Update overall stats
         const students = testResult.students;
@@ -1404,7 +1409,7 @@ router.post("/submit-test", protect, async (req, res) => {
         testResult.updatedAt = new Date();
         await testResult.save();
 
-        console.log(`✅ TestResult updated successfully!`);
+        // console.log(`✅ TestResult updated successfully!`);
       }
     } else if (!foundInTestResult && foundInAttempt) {
       // ============================================
@@ -1447,12 +1452,12 @@ router.post("/submit-test", protect, async (req, res) => {
         totalProblems: totalProblems,
         percentage: percentage,
         passed: passed,
-        timeTaken: 0,
+        timeTaken: timeTaken,
         submittedAt: new Date(),
       });
 
       await testResult.save();
-      console.log(`✅ TestResult created from CodingTestAttempt!`);
+      // console.log(`✅ TestResult created from CodingTestAttempt!`);
     }
 
     // ============================================
@@ -1468,10 +1473,13 @@ router.post("/submit-test", protect, async (req, res) => {
       testAttempt.totalProblems = totalProblems;
       testAttempt.percentage = percentage;
       testAttempt.passed = passed;
+      testAttempt.solutions = solutions;
+      testAttempt.timeTaken = timeTaken;
 
+      userAttempt.markModified("tests");
       await userAttempt.save();
 
-      console.log(`✅ CodingTestAttempt updated successfully!`);
+      // console.log(`✅ CodingTestAttempt updated successfully!`);
     } else if (!foundInAttempt) {
       // ============================================
       // ✅ STEP 9: Create CodingTestAttempt if it doesn't exist
@@ -1487,6 +1495,7 @@ router.post("/submit-test", protect, async (req, res) => {
         passedCount: totalSolved,
         percentage: percentage,
         passed: passed,
+        timeTaken: timeTaken,
       };
 
       if (!userAttempt) {
@@ -1515,7 +1524,7 @@ router.post("/submit-test", protect, async (req, res) => {
       }
 
       await userAttempt.save();
-      console.log(`✅ CodingTestAttempt created successfully!`);
+      // console.log(`✅ CodingTestAttempt created successfully!`);
     }
 
     // ============================================
