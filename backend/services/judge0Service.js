@@ -362,7 +362,9 @@ class Judge0Service {
       };
     } catch (error) {
       console.error("❌ Batch execution error:", error.message);
-      throw error;
+      console.log("🔄 Falling back to sequential execution...");
+      return this.runTestCases(code, language, testCases);
+      // throw error;
     }
   }
 }

@@ -215,7 +215,12 @@ router.post(
       // ✅ Run ALL test cases
       let result;
       try {
-        result = await judge0Service.runTestCases(code, language, testCases);
+        // result = await judge0Service.runTestCases(code, language, testCases);
+        result = await judge0Service.runTestCasesBatch(
+          code,
+          language,
+          testCases,
+        );
       } catch (error) {
         console.error("❌ Judge0 execution error:", error);
         return res.status(500).json({
@@ -781,7 +786,7 @@ router.post("/run-samples", async (req, res) => {
 
     let result;
     try {
-      result = await judge0Service.runTestCases(
+      result = await judge0Service.runTestCasesBatch(
         code,
         language,
         sampleTestCases,
