@@ -19,6 +19,8 @@ import {
   Minimize2,
   Code2,
   Sparkles,
+  ChevronLeft,
+  ChevronRight,
 } from "lucide-react";
 import {
   submitCodingSolution,
@@ -54,7 +56,7 @@ const CodeEditor = ({
   const [hiddenResults, setHiddenResults] = useState(null);
   const [isAccepted, setIsAccepted] = useState(false);
   const [hasLoaded, setHasLoaded] = useState(false);
-  const [outputHeight, setOutputHeight] = useState(250);
+  const [outputHeight, setOutputHeight] = useState(350);
   const [isDragging, setIsDragging] = useState(false);
   const [loadingType, setLoadingType] = useState(null);
   const [isFullscreen, setIsFullscreen] = useState(false);
@@ -62,6 +64,10 @@ const CodeEditor = ({
   const [isHoveringSubmit, setIsHoveringSubmit] = useState(false);
   const [isHoveringReset, setIsHoveringReset] = useState(false);
   const [isHoveringDrag, setIsHoveringDrag] = useState(false);
+
+  // ✅ New states for LeetCode-style UI
+  const [selectedTestCase, setSelectedTestCase] = useState(0);
+  const [testCaseDetails, setTestCaseDetails] = useState([]);
 
   const outputRef = useRef(null);
   const editorRef = useRef(null);
@@ -266,7 +272,6 @@ const CodeEditor = ({
     document.body.style.cursor = "ns-resize";
     document.body.style.userSelect = "none";
 
-    // Add a class to the container for smooth transitions
     containerRef.current?.classList.add("dragging");
   };
 
@@ -275,8 +280,8 @@ const CodeEditor = ({
     const clientY = e.clientY || e.touches?.[0]?.clientY || 0;
     const deltaY = dragStartY.current - clientY;
     const newHeight = Math.min(
-      Math.max(dragStartHeight.current + deltaY, 120),
-      600,
+      Math.max(dragStartHeight.current + deltaY, 200),
+      700,
     );
     setOutputHeight(newHeight);
   };
@@ -290,10 +295,7 @@ const CodeEditor = ({
     document.body.style.cursor = "";
     document.body.style.userSelect = "";
 
-    // Remove the dragging class
     containerRef.current?.classList.remove("dragging");
-
-    // Save the height to localStorage
     localStorage.setItem("outputHeight", outputHeight.toString());
   };
 
@@ -313,6 +315,24 @@ const CodeEditor = ({
       }
     }
   };
+
+  // ✅ Update test case details when results change
+  useEffect(() => {
+    if (testResults.length > 0) {
+      const details = testResults.map((tc) => ({
+        input: tc.input || "(empty)",
+        output: tc.output || "(no output)",
+        expected: tc.expected || "",
+        passed: tc.passed,
+        error: tc.error || "",
+        status: tc.status || "",
+      }));
+      setTestCaseDetails(details);
+      setSelectedTestCase(0);
+    } else {
+      setTestCaseDetails([]);
+    }
+  }, [testResults]);
 
   // ✅ RUN SAMPLES
   const handleRunSamples = async () => {
@@ -339,6 +359,8 @@ const CodeEditor = ({
     setPassedCount(0);
     setTotalCount(0);
     setHiddenResults(null);
+    setTestCaseDetails([]);
+    setSelectedTestCase(0);
 
     try {
       const response = await runSamples({
@@ -357,6 +379,7 @@ const CodeEditor = ({
         setPassedCount(data.passedTests || 0);
         setTotalCount(data.totalTests || 0);
 
+        // Build formatted output for summary
         let outputText = `🧪 Sample Test Results (${data.passedTests}/${data.totalTests} passed)\n\n`;
 
         if (data.testResults && data.testResults.length > 0) {
@@ -413,6 +436,8 @@ const CodeEditor = ({
     setPassedCount(0);
     setTotalCount(0);
     setHiddenResults(null);
+    setTestCaseDetails([]);
+    setSelectedTestCase(0);
 
     try {
       const response = await submitCodingSolution({
@@ -456,6 +481,7 @@ const CodeEditor = ({
           }
         }
 
+        // Build formatted output for summary
         let outputText = `📊 Results: ${data.status.toUpperCase()}\n`;
         outputText += `Score: ${(data.score || 0).toFixed(2)}%\n`;
         outputText += `Passed: ${data.passedTests}/${data.totalTests} test cases\n`;
@@ -561,6 +587,138 @@ const CodeEditor = ({
     return <Clock className="w-4 h-4 text-gray-400" />;
   };
 
+  // ✅ Render test case tabs
+  const renderTestCaseTabs = () => {
+    if (testCaseDetails.length === 0) return null;
+
+    return (
+      <div className="flex items-center gap-1 px-2 py-1.5 bg-gray-800/80 border-b border-gray-700 overflow-x-auto">
+        <span className="text-[10px] text-gray-500 font-medium uppercase tracking-wider mr-2 flex-shrink-0">
+          Testcases
+        </span>
+        {testCaseDetails.map((tc, idx) => {
+          const isActive = selectedTestCase === idx;
+          const isPassed = tc.passed;
+
+          return (
+            <button
+              key={idx}
+              onClick={() => setSelectedTestCase(idx)}
+              className={`flex items-center gap-1.5 px-3 py-1 rounded-md text-xs font-medium transition-all duration-200 flex-shrink-0 ${
+                isActive
+                  ? "bg-gray-700 text-white border border-gray-600"
+                  : "text-gray-400 hover:text-gray-200 hover:bg-gray-700/50"
+              }`}
+            >
+              <span>Case {idx + 1}</span>
+              {isPassed !== undefined && (
+                <span className={isPassed ? "text-green-400" : "text-red-400"}>
+                  {isPassed ? "✅" : "❌"}
+                </span>
+              )}
+            </button>
+          );
+        })}
+      </div>
+    );
+  };
+
+  // ✅ Render test case details
+  const renderTestCaseDetails = () => {
+    if (testCaseDetails.length === 0) {
+      return (
+        <div className="flex flex-col items-center justify-center h-full text-gray-500">
+          <Terminal className="w-8 h-8 mb-2 opacity-50" />
+          <p className="text-sm">
+            {loading
+              ? "Running tests..."
+              : '💡 Write code and click "Run" to test, or "Submit" for full evaluation'}
+          </p>
+        </div>
+      );
+    }
+
+    const tc = testCaseDetails[selectedTestCase];
+    if (!tc) return null;
+
+    return (
+      <div className="p-3 space-y-2.5 overflow-y-auto h-full">
+        {/* Input */}
+        <div>
+          <div className="flex items-center gap-1.5 mb-1">
+            <span className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider">
+              📥 Input:
+            </span>
+          </div>
+          <div className="bg-gray-800/80 rounded-md p-2.5 border border-gray-700">
+            <pre className="text-xs text-gray-300 whitespace-pre-wrap font-mono">
+              {tc.input}
+            </pre>
+          </div>
+        </div>
+
+        {/* Output */}
+        <div>
+          <div className="flex items-center gap-1.5 mb-1">
+            <span className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider">
+              📤 Output:
+            </span>
+          </div>
+          <div className="bg-gray-800/80 rounded-md p-2.5 border border-gray-700">
+            <pre className="text-xs text-gray-300 whitespace-pre-wrap font-mono">
+              {tc.output}
+            </pre>
+          </div>
+        </div>
+
+        {/* Expected (only show if there's an expected value) */}
+        {tc.expected && (
+          <div>
+            <div className="flex items-center gap-1.5 mb-1">
+              <span className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider">
+                🎯 Expected:
+              </span>
+            </div>
+            <div className="bg-gray-800/80 rounded-md p-2.5 border border-gray-700">
+              <pre className="text-xs text-gray-300 whitespace-pre-wrap font-mono">
+                {tc.expected}
+              </pre>
+            </div>
+          </div>
+        )}
+
+        {/* Error (if any) */}
+        {tc.error && (
+          <div>
+            <div className="flex items-center gap-1.5 mb-1">
+              <span className="text-[10px] font-semibold text-red-400 uppercase tracking-wider">
+                ⚠️ Error:
+              </span>
+            </div>
+            <div className="bg-red-900/20 rounded-md p-2.5 border border-red-800/50">
+              <pre className="text-xs text-red-400 whitespace-pre-wrap font-mono">
+                {tc.error}
+              </pre>
+            </div>
+          </div>
+        )}
+
+        {/* Status Badge */}
+        <div className="pt-1">
+          <span
+            className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium ${
+              tc.passed
+                ? "bg-green-500/20 text-green-400 border border-green-500/30"
+                : "bg-red-500/20 text-red-400 border border-red-500/30"
+            }`}
+          >
+            {tc.passed ? "✅ Passed" : "❌ Failed"}
+          </span>
+        </div>
+      </div>
+    );
+  };
+
   if (!problemId) {
     return (
       <div className="flex items-center justify-center h-full bg-gray-900 text-white">
@@ -570,7 +728,7 @@ const CodeEditor = ({
   }
 
   return (
-    <div className="flex flex-col h-full bg-gray-900">
+    <div className="flex flex-col h-[calc(100vh-64px)] md:h-[calc(100vh-80px)] bg-gray-900 overflow-hidden">
       {/* Toolbar */}
       <div className="flex flex-wrap items-center justify-between gap-2 p-3 bg-gradient-to-r from-gray-800 to-gray-850 border-b border-gray-700 flex-shrink-0">
         {/* Left Section */}
@@ -782,22 +940,17 @@ const CodeEditor = ({
         />
       </div>
 
-      {/* ✅ Professional Output Panel with Drag Handle */}
-      {/* ✅ Professional Output Panel with Drag Handle */}
+      {/* ✅ LeetCode-Style Output Panel */}
       <div
         ref={containerRef}
-        className={`bg-gray-900 border-t border-gray-700 overflow-hidden flex-shrink-0 transition-all duration-300 ${
-          isOutputExpanded ? "" : "h-10"
-        } ${isDragging ? "transition-none" : "transition-all duration-300"}`}
+        className="bg-gray-900 border-t border-gray-700 flex-shrink-0 transition-all duration-300"
         style={{
-          minHeight: isOutputExpanded ? "48px" : "40px",
-          height: isOutputExpanded ? `${outputHeight}px` : "40px",
-          maxHeight: isOutputExpanded ? "600px" : "40px",
-          // ✅ Critical: Keep it at the bottom
-          marginTop: "auto",
+          height: isOutputExpanded ? `${outputHeight}px` : "48px",
+          minHeight: isOutputExpanded ? "48px" : "48px",
+          maxHeight: isOutputExpanded ? "700px" : "48px",
         }}
       >
-        {/* ✅ Professional Drag Handle - Only show when expanded */}
+        {/* Drag Handle */}
         {isOutputExpanded && (
           <div
             className={`flex items-center justify-center py-1 bg-gradient-to-r from-gray-800 to-gray-850 hover:from-gray-700 hover:to-gray-750 cursor-ns-resize transition-all duration-200 group relative select-none ${
@@ -808,59 +961,23 @@ const CodeEditor = ({
             onMouseEnter={() => setIsHoveringDrag(true)}
             onMouseLeave={() => setIsHoveringDrag(false)}
           >
-            {/* Animated drag indicator */}
-            {/* <div className="flex items-center gap-3 px-4 py-0.5">
-              <div className="flex items-center gap-1">
-                <div
-                  className={`w-1 h-1 rounded-full bg-gray-500 group-hover:bg-gray-300 transition-all duration-300 ${isDragging ? "bg-blue-400 scale-150" : ""}`}
-                ></div>
-                <div
-                  className={`w-1 h-1 rounded-full bg-gray-500 group-hover:bg-gray-300 transition-all duration-300 delay-75 ${isDragging ? "bg-blue-400 scale-150" : ""}`}
-                ></div>
-                <div
-                  className={`w-1 h-1 rounded-full bg-gray-500 group-hover:bg-gray-300 transition-all duration-300 delay-150 ${isDragging ? "bg-blue-400 scale-150" : ""}`}
-                ></div>
-              </div>
-              <GripHorizontal
-                className={`w-4 h-4 text-gray-500 group-hover:text-gray-300 transition-all duration-300 ${isDragging ? "text-blue-400 rotate-180" : ""}`}
-              />
-              <span
-                className={`text-[8px] text-gray-500 group-hover:text-gray-300 transition-all duration-300 uppercase tracking-wider font-medium ${isDragging ? "text-blue-400" : ""}`}
-              >
-                {isDragging ? "Release to resize" : "Drag to resize"}
-              </span>
-              <GripHorizontal
-                className={`w-4 h-4 text-gray-500 group-hover:text-gray-300 transition-all duration-300 ${isDragging ? "text-blue-400 -rotate-180" : ""}`}
-              />
-              <div className="flex items-center gap-1">
-                <div
-                  className={`w-1 h-1 rounded-full bg-gray-500 group-hover:bg-gray-300 transition-all duration-300 delay-150 ${isDragging ? "bg-blue-400 scale-150" : ""}`}
-                ></div>
-                <div
-                  className={`w-1 h-1 rounded-full bg-gray-500 group-hover:bg-gray-300 transition-all duration-300 delay-75 ${isDragging ? "bg-blue-400 scale-150" : ""}`}
-                ></div>
-                <div
-                  className={`w-1 h-1 rounded-full bg-gray-500 group-hover:bg-gray-300 transition-all duration-300 ${isDragging ? "bg-blue-400 scale-150" : ""}`}
-                ></div>
-              </div>
-            </div> */}
-
-            {/* Glow line effect */}
             <div
-              className={`absolute inset-x-0 top-0 h-0.5 bg-gradient-to-r from-transparent via-gray-500 to-transparent opacity-0 group-hover:opacity-50 transition-all duration-300 ${isDragging ? "opacity-100 via-blue-400" : ""}`}
+              className={`absolute inset-x-0 top-0 h-0.5 bg-gradient-to-r from-transparent via-gray-500 to-transparent opacity-0 group-hover:opacity-50 transition-all duration-300 ${
+                isDragging ? "opacity-100 via-blue-400" : ""
+              }`}
             ></div>
             <div
-              className={`absolute inset-x-0 bottom-0 h-0.5 bg-gradient-to-r from-transparent via-gray-500 to-transparent opacity-0 group-hover:opacity-50 transition-all duration-300 ${isDragging ? "opacity-100 via-blue-400" : ""}`}
+              className={`absolute inset-x-0 bottom-0 h-0.5 bg-gradient-to-r from-transparent via-gray-500 to-transparent opacity-0 group-hover:opacity-50 transition-all duration-300 ${
+                isDragging ? "opacity-100 via-blue-400" : ""
+              }`}
             ></div>
-
-            {/* Glow background on drag */}
             {isDragging && (
               <div className="absolute inset-0 bg-blue-500/5 animate-pulse"></div>
             )}
           </div>
         )}
 
-        {/* Output Header - Always visible */}
+        {/* Output Header */}
         <div
           className="flex items-center justify-between px-4 py-2 bg-gradient-to-r from-gray-800 to-gray-850 border-b border-gray-700 cursor-pointer hover:from-gray-750 hover:to-gray-800 transition-all duration-200 h-10 flex-shrink-0 group"
           onClick={() => setIsOutputExpanded(!isOutputExpanded)}
@@ -931,7 +1048,7 @@ const CodeEditor = ({
             )}
           </div>
 
-          {/* ✅ Collapse/Expand Button */}
+          {/* Collapse/Expand Button */}
           <div className="flex items-center gap-2 flex-shrink-0">
             <button
               onClick={(e) => {
@@ -950,40 +1067,52 @@ const CodeEditor = ({
           </div>
         </div>
 
-        {/* Output Content - Only visible when expanded */}
+        {/* Output Content */}
         {isOutputExpanded && (
           <div
-            ref={outputRef}
-            className="overflow-auto p-4 font-mono text-sm"
+            className="flex flex-col h-full overflow-hidden"
             style={{ height: `calc(100% - 40px - 32px)` }}
           >
-            {loading ? (
-              <div className="flex flex-col items-center justify-center h-full gap-3 text-gray-400">
-                <div className="relative">
-                  <div className="w-10 h-10 border-3 border-blue-500/30 border-t-blue-500 rounded-full animate-spin"></div>
-                  <div className="absolute inset-0 flex items-center justify-center">
-                    <div className="w-4 h-4 bg-blue-500 rounded-full animate-pulse"></div>
-                  </div>
+            {/* Test Case Tabs */}
+            {renderTestCaseTabs()}
+
+            {/* Test Case Details */}
+            <div className="flex-1 overflow-y-auto">
+              {renderTestCaseDetails()}
+
+              {/* Summary output (fallback) */}
+              {testCaseDetails.length === 0 && !loading && output && (
+                <div className="p-4">
+                  <pre
+                    className={`whitespace-pre-wrap break-words ${
+                      errorDetails ? "text-red-400" : "text-gray-300"
+                    } leading-relaxed text-sm font-mono`}
+                  >
+                    {output}
+                  </pre>
                 </div>
-                <span className="text-sm font-medium">
-                  {loadingType === "run"
-                    ? "Running sample tests..."
-                    : "Submitting code for evaluation..."}
-                </span>
-                <span className="text-xs text-gray-500">
-                  This may take a few seconds
-                </span>
-              </div>
-            ) : (
-              <pre
-                className={`whitespace-pre-wrap break-words ${
-                  errorDetails ? "text-red-400" : "text-gray-300"
-                } leading-relaxed`}
-              >
-                {output ||
-                  '💡 Write code and click "Run" to test, or "Submit" for full evaluation'}
-              </pre>
-            )}
+              )}
+
+              {/* Loading state */}
+              {loading && testCaseDetails.length === 0 && (
+                <div className="flex flex-col items-center justify-center h-full gap-3 text-gray-400">
+                  <div className="relative">
+                    <div className="w-10 h-10 border-3 border-blue-500/30 border-t-blue-500 rounded-full animate-spin"></div>
+                    <div className="absolute inset-0 flex items-center justify-center">
+                      <div className="w-4 h-4 bg-blue-500 rounded-full animate-pulse"></div>
+                    </div>
+                  </div>
+                  <span className="text-sm font-medium">
+                    {loadingType === "run"
+                      ? "Running sample tests..."
+                      : "Submitting code for evaluation..."}
+                  </span>
+                  <span className="text-xs text-gray-500">
+                    This may take a few seconds
+                  </span>
+                </div>
+              )}
+            </div>
           </div>
         )}
       </div>

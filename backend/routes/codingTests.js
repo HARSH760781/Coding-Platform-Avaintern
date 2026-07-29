@@ -1042,7 +1042,7 @@ router.get("/attempt-status/:testId", protect, async (req, res) => {
     const { testId } = req.params;
     const userId = req.userId;
 
-    console.log(`🔍 Checking attempt for user ${userId} on test ${testId}`);
+    // console.log(`🔍 Checking attempt for user ${userId} on test ${testId}`);
 
     // ✅ Try to find by _id first (MongoDB ObjectId)
     let codingTest = null;
