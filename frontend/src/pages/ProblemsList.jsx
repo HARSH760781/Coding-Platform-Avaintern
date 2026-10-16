@@ -1,6 +1,6 @@
 // frontend/src/pages/ProblemsList.jsx
 
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useRef } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { getProblems } from "../services/api";
 import toast from "react-hot-toast";
@@ -34,6 +34,7 @@ import { useTimer } from "../context/TimerContext";
 const getUserId = () => localStorage.getItem("userId") || "anonymous";
 
 const ProblemsList = () => {
+  // console.log("🎨 [RENDER] ProblemsList rendering");
   const [problems, setProblems] = useState([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
@@ -72,6 +73,9 @@ const ProblemsList = () => {
   const navigate = useNavigate();
   const serverURL = import.meta.env.VITE_API_URL || "";
   const MAIN_APP_URL = "https://avainternlms.in";
+  // ✅ Guards against duplicate calls (StrictMode + refresh events)
+  const attemptCheckInFlight = useRef(false);
+  const hasInitialized = useRef(false);
 
   // ✅ Format time remaining
   const formatTime = (ms) => {
@@ -229,61 +233,112 @@ const ProblemsList = () => {
     [testAttempt, confirmSubmit, isSubmittingRef],
   );
 
-  // ✅ Check test attempt
+  // ✅ Retry helper for transient failures (Render cold starts, 502s, etc.)
+  const fetchWithRetry = async (url, options, retries = 2, backoff = 800) => {
+    for (let i = 0; i <= retries; i++) {
+      try {
+        const res = await fetch(url, options);
+        if (res.ok) return res;
+        if (i === retries) return res;
+      } catch (e) {
+        if (i === retries) throw e;
+      }
+      await new Promise((r) => setTimeout(r, backoff * (i + 1)));
+    }
+  };
+  // ✅ Check test attempt — deduplicated, retried, silent on first load
   const checkTestAttempt = useCallback(
-    async (testIdToCheck) => {
+    async (testIdToCheck, { silent = false, allowRedirect = true } = {}) => {
+      if (attemptCheckInFlight.current) return;
+      attemptCheckInFlight.current = true;
+
       try {
         const token = localStorage.getItem("token");
-        const response = await fetch(
+        const response = await fetchWithRetry(
           `${serverURL}/coding/attempt-status/${testIdToCheck}`,
-          {
-            headers: {
-              Authorization: `Bearer ${token}`,
-            },
-          },
+          { headers: { Authorization: `Bearer ${token}` } },
+          2,
+          800,
         );
 
+        if (!response.ok) {
+          console.warn(`⚠️ attempt-status returned ${response.status}`);
+          return;
+        }
+
         const data = await response.json();
+        if (!data.success) return;
 
-        if (data.success) {
-          const status = data.status || "in_progress";
-          const solutions = data.solutions || [];
-          const passedCount = data.passedCount || 0;
-          const totalProblems = data.totalProblems || 0;
-          const percentage = data.percentage || 0;
-          const passed = data.passed || false;
-          const hasAttempted = data.hasAttempted || false;
+        const status = data.status || "in_progress";
+        setTestAttempt({
+          status,
+          solutions: data.solutions || [],
+          passedCount: data.passedCount || 0,
+          totalProblems: data.totalProblems || 0,
+          percentage: data.percentage || 0,
+          passed: data.passed || false,
+          hasAttempted: data.hasAttempted || false,
+          message: data.message,
+        });
 
-          setTestAttempt({
-            status: status,
-            solutions: solutions,
-            passedCount: passedCount,
-            totalProblems: totalProblems,
-            percentage: percentage,
-            passed: passed,
-            hasAttempted: hasAttempted,
-            message: data.message,
-          });
+        // ✅ NEW: Sync solved state from backend (source of truth)
+        const backendSolved = data.solvedProblemIds || [];
 
-          if (status === "submitted" || status === "completed") {
-            toast.error("You have already submitted this test!");
-            setTimeout(() => {
-              redirectToMainAppAndClose();
-            }, 1500);
+        if (backendSolved.length > 0) {
+          const userId = getUserId();
+          const currentTestId =
+            testIdToCheck || localStorage.getItem("currentTestId");
+          const key = `user_${userId}_solvedProblems_${currentTestId}`;
+
+          // Merge with existing localStorage
+          const localSolved = JSON.parse(localStorage.getItem(key) || "[]");
+          const merged = Array.from(
+            new Set([...localSolved, ...backendSolved]),
+          );
+
+          localStorage.setItem(key, JSON.stringify(merged));
+          setSolvedProblems(merged);
+          setTestSolvedProblems(merged);
+
+          setStats((prev) => ({
+            ...prev,
+            solvedCount: merged.length,
+          }));
+        }
+
+        if (status === "submitted" || status === "completed") {
+          if (!silent) {
+            toast("Test already submitted. Redirecting...", { icon: "ℹ️" });
+          }
+          if (allowRedirect) {
+            setTimeout(() => redirectToMainAppAndClose(), 1500);
           }
         }
       } catch (error) {
         console.error("❌ ProblemsList - Error checking attempt:", error);
+      } finally {
+        attemptCheckInFlight.current = false;
       }
     },
     [serverURL, redirectToMainAppAndClose],
   );
 
   // ✅ Fetch problems
-  const fetchProblems = useCallback(async () => {
+  const fetchProblems = useCallback(async (testIdOverride) => {
     try {
-      const response = await getProblems();
+      const response = await getProblems(testIdOverride);
       const problemsData = response.data.problems || [];
+      const canonicalTestId = response.data.testId;
+
+      // Canonicalize testId if backend returns a different form
+      if (canonicalTestId && canonicalTestId !== testIdOverride) {
+        localStorage.setItem("currentTestId", canonicalTestId);
+        const url = new URL(window.location.href);
+        url.searchParams.set("testId", canonicalTestId);
+        window.history.replaceState({}, "", url.toString());
+        setTestId(canonicalTestId);
+      }
+
       setProblems(problemsData);
 
       const easy = problemsData.filter((p) => p.difficulty === "Easy").length;
@@ -291,21 +346,24 @@ const ProblemsList = () => {
         (p) => p.difficulty === "Medium",
       ).length;
       const hard = problemsData.filter((p) => p.difficulty === "Hard").length;
-      setStats({
+
+      setStats((prev) => ({
+        ...prev,
         total: problemsData.length,
         easy,
         medium,
         hard,
-        solvedCount: 0,
-      });
+      }));
+
+      return response;
     } catch (error) {
       console.error("Error fetching problems:", error);
       toast.error("Failed to load problems");
+      return null;
     } finally {
       setLoading(false);
     }
   }, []);
-
   // ✅ Load test-specific solved problems
   const checkSolvedProblems = useCallback((testIdOverride = null) => {
     const userId = getUserId();
@@ -448,14 +506,33 @@ const ProblemsList = () => {
   // ============================================
   // ✅ INITIALIZATION
   // ============================================
-
   useEffect(() => {
+    if (hasInitialized.current) return;
+    hasInitialized.current = true;
+
     const initializeApp = async () => {
+      let finalTestId = null;
+
       try {
         const urlParams = new URLSearchParams(window.location.search);
         const urlTestId = urlParams.get("testId");
-        const storedTestId = localStorage.getItem("currentTestId");
-        const finalTestId = urlTestId || storedTestId;
+        const storedTestId =
+          localStorage.getItem("currentTestId") ||
+          localStorage.getItem("testStringId") ||
+          localStorage.getItem("testId");
+
+        const cleanUrl =
+          urlTestId && urlTestId !== "undefined" && urlTestId !== "null"
+            ? urlTestId
+            : null;
+        const cleanStored =
+          storedTestId &&
+          storedTestId !== "undefined" &&
+          storedTestId !== "null"
+            ? storedTestId
+            : null;
+
+        finalTestId = cleanUrl || cleanStored;
 
         if (finalTestId) {
           setTestId(finalTestId);
@@ -463,43 +540,38 @@ const ProblemsList = () => {
           localStorage.setItem("currentTestId", finalTestId);
         }
 
-        // Check admin status
-        try {
-          const role = localStorage.getItem("role");
-          setIsAdmin(role === "admin");
-          setAuthChecked(true);
-        } catch (error) {
-          console.error("Error checking admin status:", error);
-          setIsAdmin(false);
-          setAuthChecked(true);
-        }
+        setIsAdmin(localStorage.getItem("role") === "admin");
+        setAuthChecked(true);
+      } catch (e) {
+        console.error("Init setup failed:", e);
+      }
 
-        // Fetch problems
-        await fetchProblems();
+      try {
+        await fetchProblems(finalTestId);
+      } catch (e) {
+        console.error("fetchProblems failed:", e);
+      }
 
-        // Load solved problems
+      try {
         await checkSolvedProblems(finalTestId);
+      } catch (e) {
+        console.error("checkSolvedProblems failed:", e);
+      }
 
-        // If in test mode, check attempt
+      try {
         if (finalTestId) {
-          await checkTestAttempt(finalTestId);
-          // Timer is started by Header, not here!
+          await checkTestAttempt(finalTestId, {
+            silent: true,
+            allowRedirect: false, // ✅ don't auto-close tab on refresh
+          });
         }
-
-        // console.log("🎉 App initialized successfully!");
-      } catch (error) {
-        console.error("❌ Error initializing app:", error);
-        toast.error("Failed to load test. Please refresh.");
+      } catch (e) {
+        console.error("checkTestAttempt failed:", e);
       }
     };
 
     initializeApp();
-
-    // ✅ Cleanup - no timer to clear here (Header handles it)
-    return () => {
-      // Nothing to clean up here
-    };
-  }, []); // Run once
+  }, []);
 
   // ✅ Refresh event listener
   useEffect(() => {
@@ -509,12 +581,14 @@ const ProblemsList = () => {
         setTestId(currentTestId);
         setIsTestMode(true);
         setIsInitialLoad(false);
-        checkTestAttempt(currentTestId);
+        checkTestAttempt(currentTestId, {
+          silent: true,
+          allowRedirect: false, // ✅ don't auto-close tab on refresh
+        });
         checkSolvedProblems(currentTestId);
-        fetchProblems();
+        fetchProblems(currentTestId);
       }
     };
-
     window.addEventListener("refreshTestAttempt", handleTestRefresh);
 
     return () => {

@@ -1,4 +1,3 @@
-// backend/models/User.js
 import mongoose from "mongoose";
 
 const userSchema = new mongoose.Schema({
@@ -26,9 +25,39 @@ const userSchema = new mongoose.Schema({
   role: {
     type: String,
     required: true,
+    // WIDE enum — temporary. Narrowed to
+    // ["superadmin","admin","subadmin","student"] after migration.
+    enum: ["superadmin", "admin", "subadmin", "student", "mentor"],
+    default: "student",
+  },
+  status: {
+    type: String,
+    enum: ["active", "pending", "rejected"],
+    default: "active",
+  },
+  collegeId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: "College",
+    default: null,
+  },
+  departmentId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: "Department",
+    default: null,
+  },
+  // ⭐ NEW: batch year (e.g. 2024 = joined in 2024)
+  batchYear: {
+    type: Number,
+    default: null,
+    index: true,
+  },
+  rejectionReason: {
+    type: String,
+    default: null,
   },
   profileImage: {
     type: String,
+    // required: true,
   },
   phone: {
     type: String,
@@ -45,6 +74,8 @@ const userSchema = new mongoose.Schema({
     required: true,
     trim: true,
   },
+
+  // ⭐ Login/Logout tracking
   lastLogin: {
     type: Date,
     default: null,
@@ -57,6 +88,8 @@ const userSchema = new mongoose.Schema({
     type: Boolean,
     default: false,
   },
+
+  // ⭐ Profile timestamps
   joinDate: {
     type: Date,
     default: Date.now,
@@ -65,30 +98,28 @@ const userSchema = new mongoose.Schema({
     type: Date,
     default: Date.now,
   },
+
+  // ⭐ REQUIRED FOR FORGOT PASSWORD SYSTEM
   resetPasswordToken: {
     type: String,
   },
   resetPasswordExpire: {
     type: Date,
   },
-  // Coding-specific fields
-  codingStats: {
-    totalSolved: { type: Number, default: 0 },
-    easySolved: { type: Number, default: 0 },
-    mediumSolved: { type: Number, default: 0 },
-    hardSolved: { type: Number, default: 0 },
-    totalSubmissions: { type: Number, default: 0 },
-    totalAccepted: { type: Number, default: 0 },
-  },
-  solvedProblems: [
-    {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: "Problem",
-    },
-  ],
 });
 
+// =============================
+// Indexes (multi-tenant)
+// =============================
+userSchema.index({ collegeId: 1, departmentId: 1, role: 1 });
+userSchema.index({ collegeId: 1, status: 1, role: 1 });
+// ⭐ NEW: fast filtering by college + department + batch
+userSchema.index({ collegeId: 1, departmentId: 1, batchYear: 1, role: 1 });
+
+// =============================
 // Custom Schema Methods
+// =============================
+
 userSchema.methods.updateProfile = function (updateData) {
   this.fullName = updateData.fullName || this.fullName;
   this.phone = updateData.phone || this.phone;
@@ -110,6 +141,10 @@ userSchema.methods.updateLogoutTime = function () {
   this.lastLogout = nowIST;
   this.isOnline = false;
   return this.save();
+};
+
+userSchema.methods.isPending = function () {
+  return this.status === "pending";
 };
 
 export default mongoose.model("User", userSchema);

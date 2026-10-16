@@ -317,16 +317,19 @@ const CodeEditor = ({
   };
 
   // ✅ Update test case details when results change
+  // Only non-hidden (example) test cases become tabs
   useEffect(() => {
     if (testResults.length > 0) {
-      const details = testResults.map((tc) => ({
-        input: tc.input || "(empty)",
-        output: tc.output || "(no output)",
-        expected: tc.expected || "",
-        passed: tc.passed,
-        error: tc.error || "",
-        status: tc.status || "",
-      }));
+      const details = testResults
+        .filter((tc) => !tc.isHidden)
+        .map((tc) => ({
+          input: tc.input || "(empty)",
+          output: tc.output || "(no output)",
+          expected: tc.expected || "",
+          passed: tc.passed,
+          error: tc.error || "",
+          status: tc.status || "",
+        }));
       setTestCaseDetails(details);
       setSelectedTestCase(0);
     } else {
@@ -334,17 +337,11 @@ const CodeEditor = ({
     }
   }, [testResults]);
 
-  // ✅ RUN SAMPLES
+  // ✅ RUN SAMPLES — only example test cases
   const handleRunSamples = async () => {
     if (!code.trim()) {
       setOutput("⚠️ Please write some code first");
       toast.error("Please write some code first");
-      return;
-    }
-
-    if (sampleTestCases.length === 0) {
-      setOutput("⚠️ No sample test cases available");
-      toast.error("No sample test cases available");
       return;
     }
 
@@ -379,16 +376,12 @@ const CodeEditor = ({
         setPassedCount(data.passedTests || 0);
         setTotalCount(data.totalTests || 0);
 
-        // Build formatted output for summary
         let outputText = `🧪 Sample Test Results (${data.passedTests}/${data.totalTests} passed)\n\n`;
 
         if (data.testResults && data.testResults.length > 0) {
           data.testResults.forEach((tc, idx) => {
             const icon = tc.passed ? "✅" : "❌";
             outputText += `${icon} Test Case ${idx + 1}: ${tc.passed ? "PASSED" : "FAILED"}\n`;
-            if (tc.expected) outputText += `   Expected: ${tc.expected}\n`;
-            if (tc.output) outputText += `   Output: ${tc.output}\n`;
-            if (tc.error) outputText += `   Error: ${tc.error}\n\n`;
           });
         }
 
@@ -407,7 +400,8 @@ const CodeEditor = ({
         toast.error(data.error || "Failed to run samples");
       }
     } catch (error) {
-      const errorMsg = error.message || "Failed to run samples";
+      const errorMsg =
+        error.response?.data?.error || error.message || "Failed to run samples";
       setOutput(`❌ Error: ${errorMsg}`);
       toast.error(errorMsg);
     } finally {
@@ -416,7 +410,7 @@ const CodeEditor = ({
     }
   };
 
-  // ✅ SUBMIT
+  // ✅ SUBMIT — examples (visible) + hidden (count only)
   const handleSubmit = async () => {
     if (!code.trim()) {
       setOutput("⚠️ Please write some code first");
@@ -450,19 +444,21 @@ const CodeEditor = ({
       const data = response.data;
 
       if (data.success) {
-        setTestResults(data.testResults || []);
+        // Backend sends exampleResults (with input/output/expected)
+        // plus hiddenSummary (counts only)
+        const exampleResults = data.exampleResults || data.testResults || [];
+        const hiddenSummary = data.hiddenSummary || {
+          passed: data.hiddenPassed || 0,
+          total: data.hiddenCount || 0,
+        };
+
+        setTestResults(exampleResults);
         setStatus(data.status);
         setScore(data.score || 0);
         setIsSaved(data.isSaved || false);
         setPassedCount(data.passedTests || 0);
         setTotalCount(data.totalTests || 0);
-
-        const hiddenResultsData =
-          data.testResults?.filter((tc) => tc.isHidden) || [];
-        setHiddenResults({
-          total: hiddenResultsData.length,
-          passed: hiddenResultsData.filter((tc) => tc.passed).length,
-        });
+        setHiddenResults(hiddenSummary);
 
         if (onRefreshTestAttempt) {
           await onRefreshTestAttempt();
@@ -487,28 +483,17 @@ const CodeEditor = ({
         outputText += `Passed: ${data.passedTests}/${data.totalTests} test cases\n`;
         outputText += `Execution Time: ${(data.executionTime || 0).toFixed(3)}s\n\n`;
 
-        const sampleResults =
-          data.testResults?.filter((tc) => !tc.isHidden) || [];
-        const hiddenCount =
-          (data.testResults?.length || 0) - sampleResults.length;
-
-        if (sampleResults.length > 0) {
+        if (exampleResults.length > 0) {
           outputText += `--- Sample Test Cases ---\n`;
-          sampleResults.forEach((tc, idx) => {
+          exampleResults.forEach((tc, idx) => {
             const icon = tc.passed ? "✅" : "❌";
-            outputText += `\n${icon} Test Case ${idx + 1}: ${tc.passed ? "PASSED" : "FAILED"}\n`;
-            if (tc.expected) outputText += `   Expected: ${tc.expected}\n`;
-            if (tc.output) outputText += `   Output: ${tc.output}\n`;
-            if (tc.error) outputText += `   Error: ${tc.error}\n`;
+            outputText += `${icon} Test Case ${idx + 1}: ${tc.passed ? "PASSED" : "FAILED"}\n`;
           });
           outputText += `\n`;
         }
 
-        if (hiddenCount > 0) {
-          const hiddenPassed =
-            data.testResults?.filter((tc) => tc.isHidden && tc.passed).length ||
-            0;
-          outputText += `🔒 ${hiddenCount} Hidden Test Cases: ${hiddenPassed}/${hiddenCount} passed\n\n`;
+        if (hiddenSummary.total > 0) {
+          outputText += `🔒 ${hiddenSummary.passed}/${hiddenSummary.total} hidden test cases passed\n\n`;
         }
 
         if (data.status === "Accepted") {
@@ -587,12 +572,12 @@ const CodeEditor = ({
     return <Clock className="w-4 h-4 text-gray-400" />;
   };
 
-  // ✅ Render test case tabs
+  // ✅ Render test case tabs — one per example
   const renderTestCaseTabs = () => {
     if (testCaseDetails.length === 0) return null;
 
     return (
-      <div className="flex items-center gap-1 px-2 py-1.5 bg-gray-800/80 border-b border-gray-700 overflow-x-auto">
+      <div className="flex items-center gap-1 px-2 py-1.5 bg-gray-800/80 border-b border-gray-700 overflow-x-auto hide-scrollbar">
         <span className="text-[10px] text-gray-500 font-medium uppercase tracking-wider mr-2 flex-shrink-0">
           Testcases
         </span>
@@ -624,15 +609,18 @@ const CodeEditor = ({
   };
 
   // ✅ Render test case details
+  // ✅ Render test case details
   const renderTestCaseDetails = () => {
     if (testCaseDetails.length === 0) {
+      // When loading, let the parent's loading block handle the UI
+      if (loading) return null;
+
       return (
-        <div className="flex flex-col items-center justify-center h-full text-gray-500">
+        <div className="hide-scrollbar flex flex-col items-center justify-center h-full text-gray-500">
           <Terminal className="w-8 h-8 mb-2 opacity-50" />
           <p className="text-sm">
-            {loading
-              ? "Running tests..."
-              : '💡 Write code and click "Run" to test, or "Submit" for full evaluation'}
+            💡 Write code and click "Run" to test, or "Submit" for full
+            evaluation
           </p>
         </div>
       );
@@ -642,7 +630,7 @@ const CodeEditor = ({
     if (!tc) return null;
 
     return (
-      <div className="p-3 space-y-2.5 overflow-y-auto h-full">
+      <div className="p-3 space-y-2.5 overflow-y-auto h-full hide-scrollbar">
         {/* Input */}
         <div>
           <div className="flex items-center gap-1.5 mb-1">
@@ -671,7 +659,7 @@ const CodeEditor = ({
           </div>
         </div>
 
-        {/* Expected (only show if there's an expected value) */}
+        {/* Expected */}
         {tc.expected && (
           <div>
             <div className="flex items-center gap-1.5 mb-1">
@@ -687,7 +675,7 @@ const CodeEditor = ({
           </div>
         )}
 
-        {/* Error (if any) */}
+        {/* Error */}
         {tc.error && (
           <div>
             <div className="flex items-center gap-1.5 mb-1">
@@ -728,8 +716,14 @@ const CodeEditor = ({
   }
 
   return (
-    <div className="flex flex-col h-[calc(100vh-64px)] md:h-[calc(100vh-80px)] bg-gray-900 overflow-hidden">
-      {/* Toolbar */}
+    <div
+      ref={containerRef}
+      className="flex flex-col bg-gray-900 overflow-hidden"
+      style={{ height: "100%", minHeight: 0 }}
+    >
+      {/* ============================================
+        TOOLBAR (fixed height)
+    ============================================ */}
       <div className="flex flex-wrap items-center justify-between gap-2 p-3 bg-gradient-to-r from-gray-800 to-gray-850 border-b border-gray-700 flex-shrink-0">
         {/* Left Section */}
         <div className="flex flex-wrap items-center gap-2 flex-1 min-w-0">
@@ -831,13 +825,13 @@ const CodeEditor = ({
 
           <button
             onClick={handleRunSamples}
-            disabled={loading || sampleTestCases.length === 0}
+            disabled={loading}
             onMouseEnter={() => setIsHoveringRun(true)}
             onMouseLeave={() => setIsHoveringRun(false)}
             className={`px-4 py-1.5 rounded-lg text-sm font-medium transition-all duration-200 flex items-center gap-2 ${
               loading && loadingType === "run"
                 ? "bg-gray-700 text-gray-400 cursor-not-allowed"
-                : loading || sampleTestCases.length === 0
+                : loading
                   ? "bg-gray-700 text-gray-400 cursor-not-allowed"
                   : `bg-blue-600 text-white hover:bg-blue-500 ${
                       isHoveringRun
@@ -891,7 +885,9 @@ const CodeEditor = ({
         </div>
       </div>
 
-      {/* Editor */}
+      {/* ============================================
+        EDITOR (flex-grow)
+    ============================================ */}
       <div className="flex-1 relative min-h-0">
         <Editor
           height="100%"
@@ -940,46 +936,32 @@ const CodeEditor = ({
         />
       </div>
 
-      {/* ✅ LeetCode-Style Output Panel */}
+      {/* ============================================
+        OUTPUT PANEL (fixed at bottom, resizable)
+    ============================================ */}
       <div
-        ref={containerRef}
-        className="bg-gray-900 border-t border-gray-700 flex-shrink-0 transition-all duration-300"
+        className="hide-scrollbar flex-shrink-0 border-t border-gray-700 bg-gray-900 flex flex-col"
         style={{
-          height: isOutputExpanded ? `${outputHeight}px` : "48px",
-          minHeight: isOutputExpanded ? "48px" : "48px",
-          maxHeight: isOutputExpanded ? "700px" : "48px",
+          height: isOutputExpanded ? `${outputHeight}px` : "44px",
+          minHeight: isOutputExpanded ? "150px" : "44px",
+          maxHeight: isOutputExpanded ? "70vh" : "44px",
         }}
       >
-        {/* Drag Handle */}
+        {/* Drag Handle — only visible when expanded */}
         {isOutputExpanded && (
           <div
-            className={`flex items-center justify-center py-1 bg-gradient-to-r from-gray-800 to-gray-850 hover:from-gray-700 hover:to-gray-750 cursor-ns-resize transition-all duration-200 group relative select-none ${
-              isDragging ? "from-blue-900/30 to-blue-800/30" : ""
+            className={`h-1.5 cursor-ns-resize flex-shrink-0 transition-colors ${
+              isDragging ? "bg-blue-500" : "bg-gray-700 hover:bg-gray-600"
             }`}
             onMouseDown={handleDragStart}
             onTouchStart={handleDragStart}
-            onMouseEnter={() => setIsHoveringDrag(true)}
-            onMouseLeave={() => setIsHoveringDrag(false)}
-          >
-            <div
-              className={`absolute inset-x-0 top-0 h-0.5 bg-gradient-to-r from-transparent via-gray-500 to-transparent opacity-0 group-hover:opacity-50 transition-all duration-300 ${
-                isDragging ? "opacity-100 via-blue-400" : ""
-              }`}
-            ></div>
-            <div
-              className={`absolute inset-x-0 bottom-0 h-0.5 bg-gradient-to-r from-transparent via-gray-500 to-transparent opacity-0 group-hover:opacity-50 transition-all duration-300 ${
-                isDragging ? "opacity-100 via-blue-400" : ""
-              }`}
-            ></div>
-            {isDragging && (
-              <div className="absolute inset-0 bg-blue-500/5 animate-pulse"></div>
-            )}
-          </div>
+            title="Drag to resize"
+          />
         )}
 
-        {/* Output Header */}
+        {/* Header — always visible */}
         <div
-          className="flex items-center justify-between px-4 py-2 bg-gradient-to-r from-gray-800 to-gray-850 border-b border-gray-700 cursor-pointer hover:from-gray-750 hover:to-gray-800 transition-all duration-200 h-10 flex-shrink-0 group"
+          className="flex items-center justify-between px-4 h-11 bg-gray-800 border-b border-gray-700 cursor-pointer hover:bg-gray-750 transition-colors flex-shrink-0 select-none"
           onClick={() => setIsOutputExpanded(!isOutputExpanded)}
         >
           <div className="flex items-center gap-3 overflow-hidden">
@@ -988,27 +970,24 @@ const CodeEditor = ({
               <span className="text-gray-300 font-medium text-sm whitespace-nowrap">
                 Output
               </span>
-              {isOutputExpanded && (
-                <span className="text-[10px] text-gray-500 hidden lg:inline ml-1">
-                  (Drag handle to resize)
-                </span>
-              )}
               {!isOutputExpanded && (
                 <span className="text-[10px] text-blue-400 ml-1 animate-pulse font-medium">
                   ▼ Click to expand
                 </span>
               )}
             </div>
-            {loading && (
+
+            {/* {loading && (
               <div className="flex items-center gap-2">
                 <Loader2 className="w-3 h-3 text-blue-400 animate-spin" />
                 <span className="text-blue-400 text-xs">
                   {loadingType === "run" ? "Running..." : "Submitting..."}
                 </span>
               </div>
-            )}
-            {!loading && testResults.length > 0 && isOutputExpanded && (
-              <div className="flex gap-2 text-sm">
+            )} */}
+
+            {!loading && testResults.length > 0 && (
+              <div className="flex gap-3 text-sm items-center">
                 <span className="text-green-400 whitespace-nowrap flex items-center gap-1">
                   <CheckCircle className="w-3 h-3" />
                   {testResults.filter((t) => t.passed).length}
@@ -1020,26 +999,21 @@ const CodeEditor = ({
                 <span className="text-gray-500 whitespace-nowrap">
                   ({passedCount}/{totalCount})
                 </span>
-              </div>
-            )}
-            {!loading && testResults.length > 0 && !isOutputExpanded && (
-              <div className="flex items-center gap-2 text-xs">
-                <span className="text-green-400 whitespace-nowrap">
-                  ✅ {testResults.filter((t) => t.passed).length} passed
-                </span>
-                {testResults.filter((t) => !t.passed).length > 0 && (
-                  <span className="text-red-400 whitespace-nowrap">
-                    ❌ {testResults.filter((t) => !t.passed).length} failed
+                {hiddenResults && hiddenResults.total > 0 && (
+                  <span className="text-yellow-400 whitespace-nowrap text-xs flex items-center gap-1">
+                    🔒 {hiddenResults.passed}/{hiddenResults.total} hidden
                   </span>
                 )}
               </div>
             )}
+
             {errorDetails && (
               <span className="text-red-400 text-xs whitespace-nowrap flex items-center gap-1">
                 <AlertCircle className="w-3 h-3" />
                 Error
               </span>
             )}
+
             {isSaved && (
               <span className="text-green-400 text-xs whitespace-nowrap flex items-center gap-1">
                 <CheckCircle className="w-3 h-3" />
@@ -1048,39 +1022,33 @@ const CodeEditor = ({
             )}
           </div>
 
-          {/* Collapse/Expand Button */}
-          <div className="flex items-center gap-2 flex-shrink-0">
-            <button
-              onClick={(e) => {
-                e.stopPropagation();
-                setIsOutputExpanded(!isOutputExpanded);
-              }}
-              className="p-1 rounded-md hover:bg-gray-700/50 transition-colors text-gray-400 hover:text-white"
-              title={isOutputExpanded ? "Collapse Output" : "Expand Output"}
-            >
-              {isOutputExpanded ? (
-                <ChevronDown className="w-4 h-4" />
-              ) : (
-                <ChevronUp className="w-4 h-4" />
-              )}
-            </button>
-          </div>
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              setIsOutputExpanded(!isOutputExpanded);
+            }}
+            className="p-1 rounded-md hover:bg-gray-700/50 transition-colors text-gray-400 hover:text-white flex-shrink-0"
+            title={isOutputExpanded ? "Collapse Output" : "Expand Output"}
+          >
+            {isOutputExpanded ? (
+              <ChevronDown className="w-4 h-4" />
+            ) : (
+              <ChevronUp className="w-4 h-4" />
+            )}
+          </button>
         </div>
 
-        {/* Output Content */}
+        {/* Content — only rendered when expanded */}
         {isOutputExpanded && (
-          <div
-            className="flex flex-col h-full overflow-hidden"
-            style={{ height: `calc(100% - 40px - 32px)` }}
-          >
+          <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
             {/* Test Case Tabs */}
             {renderTestCaseTabs()}
 
-            {/* Test Case Details */}
-            <div className="flex-1 overflow-y-auto">
+            {/* Test Case Details / Summary */}
+            <div className="flex-1 overflow-y-auto min-h-0 hide-scrollbar">
               {renderTestCaseDetails()}
 
-              {/* Summary output (fallback) */}
+              {/* Fallback summary text */}
               {testCaseDetails.length === 0 && !loading && output && (
                 <div className="p-4">
                   <pre

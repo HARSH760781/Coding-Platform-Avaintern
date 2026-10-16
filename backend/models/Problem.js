@@ -17,9 +17,22 @@ const solutionSchema = new mongoose.Schema({
 });
 
 const problemSchema = new mongoose.Schema({
-  problemId: { type: String, unique: true, required: true },
+  // Multi-tenant fields
+  collegeId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: "College",
+    default: null,
+    index: true,
+  },
+  departmentId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: "Department",
+    default: null,
+  },
 
-  // ✅ NEW: Add testId field
+  // NOT globally unique — unique per college (see compound index)
+  problemId: { type: String, required: true },
+
   testId: {
     type: String,
     required: true,
@@ -67,7 +80,8 @@ const problemSchema = new mongoose.Schema({
   updatedAt: { type: Date, default: Date.now },
 });
 
-// ✅ Add index for faster queries
+// Unique per college, not globally
+problemSchema.index({ collegeId: 1, problemId: 1 }, { unique: true });
 problemSchema.index({ testId: 1, problemId: 1 });
 
 export default mongoose.model("Problem", problemSchema);

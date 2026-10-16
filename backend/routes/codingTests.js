@@ -34,10 +34,6 @@ router.post("/coding-tests/create", async (req, res) => {
       passingPercentage,
     } = req.body;
 
-    // console.log("📝 Creating coding test:", title);
-    // console.log("📝 Request body:", req.body);
-
-    // Validate required fields
     if (
       !title ||
       !subject ||
@@ -53,14 +49,11 @@ router.post("/coding-tests/create", async (req, res) => {
       });
     }
 
-    // Generate unique testId
     const testId = `TEST_${Date.now()}`;
-
-    // Get user ID from request
     const userId = req.userId || "admin";
 
-    // Create test
     const test = new CodingTest({
+      testId,
       title,
       description: description || "",
       subject,
@@ -77,8 +70,6 @@ router.post("/coding-tests/create", async (req, res) => {
 
     await test.save();
 
-    // console.log(`✅ Coding test created: ${testId} - ${title}`);
-
     res.json({
       success: true,
       message: "Coding test created successfully",
@@ -92,54 +83,44 @@ router.post("/coding-tests/create", async (req, res) => {
     });
   }
 });
+
 // ✅ Helper function to normalize status for TestAttempt
 const normalizeStatusForTestAttempt = (status) => {
   const statusMap = {
-    // Accepted
     Accepted: "accepted",
     "Accepted ✅": "accepted",
     AC: "accepted",
     accepted: "accepted",
-
-    // Wrong Answer
     "Wrong Answer": "wrong_answer",
     "Wrong Answer ❌": "wrong_answer",
     WA: "wrong_answer",
     wrong_answer: "wrong_answer",
     "wrong-answer": "wrong_answer",
-
-    // Runtime Error
     "Runtime Error": "runtime_error",
     "Runtime Error ⚠️": "runtime_error",
     RE: "runtime_error",
     runtime_error: "runtime_error",
     "runtime-error": "runtime_error",
-
-    // Compilation Error
     "Compilation Error": "compilation_error",
     "Compilation Error 🔧": "compilation_error",
     CE: "compilation_error",
     compilation_error: "compilation_error",
     "compilation-error": "compilation_error",
-
-    // Time Limit
     "Time Limit Exceeded": "runtime_error",
     TLE: "runtime_error",
     time_limit: "runtime_error",
     time_limit_exceeded: "runtime_error",
     "time-limit-exceeded": "runtime_error",
-
-    // Pending
     Pending: "pending",
     "Pending ⏳": "pending",
     pending: "pending",
   };
-
   return statusMap[status] || "pending";
 };
 
 // ============================================
 // POST /api/coding/submit
+// Runs EXAMPLES (visible) + TESTCASES (hidden)
 // ============================================
 router.post(
   "/submit",
@@ -153,7 +134,6 @@ router.post(
       const { problemId, code, language, testId } = req.body;
       const userId = req.userId;
 
-      // ✅ Validate user
       if (!userId) {
         return res.status(401).json({
           success: false,
@@ -168,7 +148,6 @@ router.post(
         });
       }
 
-      // ✅ Validate testId
       if (
         !testId ||
         testId === "DEFAULT_TEST" ||
@@ -181,12 +160,6 @@ router.post(
         });
       }
 
-      // console.log(`👤 User ID: ${userId}`);
-      // console.log(`📝 Problem ID: ${problemId}`);
-      // console.log(`💻 Language: ${language}`);
-      // console.log(`🧪 Test ID: ${testId}`);
-
-      // ✅ Get language ID
       const languageId = judge0Service.getLanguageId(language);
       if (!languageId) {
         return res.status(400).json({
@@ -195,56 +168,104 @@ router.post(
         });
       }
 
-      // ✅ Find the problem
-      const problem = await Problem.findOne({ problemId: problemId });
-      if (!problem) {
+      /* ---------- Load test + find problem in embedded array ---------- */
+      const codingTest = await CodingTest.findOne({ testId: testId });
+      if (!codingTest) {
         return res.status(404).json({
           success: false,
-          error: "Problem not found",
+          error: "Test not found",
         });
       }
 
+      const problem = codingTest.problems.find(
+        (p) => p.problemId === problemId,
+      );
+      if (!problem) {
+        return res.status(404).json({
+          success: false,
+          error: "Problem not found for this test",
+        });
+      }
+
+      // ✅ Rule: examples = visible, testCases = hidden
+      const examples = problem.examples || [];
       const testCases = problem.testCases || [];
-      if (testCases.length === 0) {
+
+      if (examples.length === 0 && testCases.length === 0) {
         return res.status(400).json({
           success: false,
           error: "No test cases found for this problem",
         });
       }
 
-      // ✅ Run ALL test cases
-      let result;
-      try {
-        // result = await judge0Service.runTestCases(code, language, testCases);
-        result = await judge0Service.runTestCasesBatch(
-          code,
-          language,
-          testCases,
-        );
-      } catch (error) {
-        console.error("❌ Judge0 execution error:", error);
-        return res.status(500).json({
-          success: false,
-          error: error.message || "Code execution failed",
-        });
+      // Map examples → shape judge0 expects
+      const exampleCasesForJudge = examples.map((ex) => ({
+        input: ex.input,
+        expectedOutput: ex.output,
+      }));
+
+      // ============================================
+      // 1. Run EXAMPLES (visible)
+      // ============================================
+      let exampleRun = { results: [], passedCount: 0, totalCount: 0, score: 0 };
+      if (exampleCasesForJudge.length > 0) {
+        try {
+          exampleRun = await judge0Service.runTestCasesBatch(
+            code,
+            language,
+            exampleCasesForJudge,
+          );
+        } catch (err) {
+          console.error("❌ Judge0 examples error:", err);
+          return res.status(500).json({
+            success: false,
+            error: err.message || "Code execution failed",
+          });
+        }
       }
 
-      // ✅ Determine final status
-      let displayStatus = "Pending";
-      let enumStatus = "pending";
+      // ============================================
+      // 2. Run HIDDEN test cases
+      // ============================================
+      let hiddenRun = { results: [], passedCount: 0, totalCount: 0, score: 0 };
+      if (testCases.length > 0) {
+        try {
+          hiddenRun = await judge0Service.runTestCasesBatch(
+            code,
+            language,
+            testCases,
+          );
+        } catch (err) {
+          console.error("❌ Judge0 hidden error:", err);
+          return res.status(500).json({
+            success: false,
+            error: err.message || "Code execution failed",
+          });
+        }
+      }
 
-      const hasCompilationError = result.results.some(
+      // ============================================
+      // 3. Determine overall status
+      // ============================================
+      const allResults = [...exampleRun.results, ...hiddenRun.results];
+      const totalCount = allResults.length;
+      const passedCount = allResults.filter((r) => r.passed).length;
+
+      const hasCompilationError = allResults.some(
         (r) =>
           r.status === "Compilation Error" || r.status === "compilation error",
       );
-      const hasRuntimeError = result.results.some(
+      const hasRuntimeError = allResults.some(
         (r) => r.status === "Runtime Error" || r.status === "runtime error",
       );
-      const hasTimeLimit = result.results.some(
+      const hasTimeLimit = allResults.some(
         (r) =>
           r.status === "Time Limit Exceeded" ||
           r.status === "time limit exceeded",
       );
+
+      let displayStatus = "Pending";
+      let enumStatus = "pending";
 
       if (hasCompilationError) {
         displayStatus = "Compilation Error";
@@ -255,7 +276,7 @@ router.post(
       } else if (hasTimeLimit) {
         displayStatus = "Time Limit Exceeded";
         enumStatus = "runtime_error";
-      } else if (result.passedCount === result.totalCount) {
+      } else if (passedCount === totalCount && totalCount > 0) {
         displayStatus = "Accepted";
         enumStatus = "accepted";
       } else {
@@ -263,30 +284,23 @@ router.post(
         enumStatus = "wrong_answer";
       }
 
-      // console.log(`📊 Display Status: ${displayStatus}`);
-      // console.log(`📊 Enum Status: ${enumStatus}`);
-      // console.log(`📊 Passed: ${result.passedCount}/${result.totalCount}`);
+      const score =
+        totalCount > 0
+          ? parseFloat(((passedCount / totalCount) * 100).toFixed(2))
+          : 0;
 
-      // ============================================
-      // Calculate total execution time
-      // ============================================
-      const totalExecutionTime = result.results.reduce((sum, r) => {
+      const totalExecutionTime = allResults.reduce((sum, r) => {
         const time = parseFloat(r.executionTime) || 0;
         return sum + time;
       }, 0);
 
-      // ============================================
-      // ✅ STORE IN CODINGTESTATTEMPT (Nested Structure)
-      // ============================================
-      try {
-        // console.log(`🔍 Looking for user: ${userId}`);
+      const problemDocId = problem._id;
 
-        // ✅ Step 1: Find the user's document
+      /* ---------- Save attempt / TestResult ---------- */
+      try {
         let userAttempt = await CodingTestAttempt.findOne({ userId: userId });
 
         if (!userAttempt) {
-          // ✅ Step 2: Create new user document if not exists
-          // console.log(`🆕 Creating new user document`);
           userAttempt = new CodingTestAttempt({
             userId: userId,
             tests: [],
@@ -296,12 +310,9 @@ router.post(
           });
         }
 
-        // ✅ Step 3: Find the test in the tests array
         let testIndex = userAttempt.tests.findIndex((t) => t.testId === testId);
 
         if (testIndex === -1) {
-          // ✅ Step 4: Create new test if not exists
-          // console.log(`🆕 Creating new test: ${testId}`);
           const newTest = {
             testId: testId,
             status: "in_progress",
@@ -314,45 +325,33 @@ router.post(
           };
           userAttempt.tests.push(newTest);
           testIndex = userAttempt.tests.length - 1;
-        } else {
-          // console.log(`📝 Found existing test at index: ${testIndex}`);
-          // console.log(
-          //   `📝 Current solutions: ${userAttempt.tests[testIndex].solutions.length}`,
-          // );
         }
 
-        // ✅ Step 5: Get the test
         const test = userAttempt.tests[testIndex];
 
-        // ✅ Step 6: Check if solution already exists for this problem
         const existingIndex = test.solutions.findIndex(
           (s) =>
-            s.problemId && s.problemId.toString() === problem._id.toString(),
+            s.problemId && s.problemId.toString() === problemDocId.toString(),
         );
 
-        // ✅ Step 7: Create solution data
         const solutionData = {
-          problemId: problem._id,
+          problemId: problemDocId,
           problemTitle: problem.title || "",
           code: code,
           language: language,
           status: enumStatus,
-          passedTests: result.passedCount,
-          totalTests: result.totalCount,
+          passedTests: passedCount,
+          totalTests: totalCount,
           executionTime: totalExecutionTime,
           submittedAt: new Date(),
         };
 
-        // ✅ Step 8: Update or add solution
         if (existingIndex !== -1) {
           test.solutions[existingIndex] = solutionData;
-          // console.log(`🔄 Updated solution for ${problemId}`);
         } else {
           test.solutions.push(solutionData);
-          // console.log(`➕ Added solution for ${problemId}`);
         }
 
-        // ✅ Step 9: Update test stats
         const acceptedSolutions = test.solutions.filter(
           (s) => s.status === "accepted",
         );
@@ -364,15 +363,6 @@ router.post(
             : 0;
         test.passed = test.percentage >= 40;
 
-        // ✅ Step 10: Mark test as completed if all problems solved
-        // if (test.totalProblems > 0 && test.passedCount === test.totalProblems) {
-        //   test.status = "completed";
-        //   test.endTime = new Date();
-        //   test.submittedAt = new Date();
-        //   console.log(`🎉 Test ${testId} completed!`);
-        // }
-
-        // ✅ Step 11: Update overall user stats
         const allTests = userAttempt.tests;
         userAttempt.totalTestsTaken = allTests.length;
         userAttempt.totalProblemsSolved = allTests.reduce(
@@ -388,182 +378,126 @@ router.post(
             ? (userAttempt.totalProblemsSolved / totalAttempted) * 100
             : 0;
 
-        // ✅ Step 12: Save everything
         await userAttempt.save();
-        // console.log(`✅✅✅ Successfully saved!`);
-        // console.log(
-        //   `📊 Test: ${test.passedCount}/${test.totalProblems} (${test.percentage}%)`,
-        // );
-        // console.log(
-        //   `📊 User: ${userAttempt.totalProblemsSolved} problems solved`,
-        // );
 
-        // ============================================
-        // ✅ STEP 13: ALSO SAVE TO TESTRESULT
-        // ============================================
+        /* ---------- TestResult update ---------- */
         if (enumStatus === "accepted") {
-          // console.log(`📊 Updating TestResult for test: ${testId}`, userId);
           try {
-            // ✅ Step 1: Find the CodingTest document using the MongoDB _id
-            const codingTest = await CodingTest.findById(testId);
+            const stringTestId = codingTest.testId;
 
-            if (!codingTest) {
-              console.log(`❌ CodingTest not found with _id: ${testId}`);
-            } else {
-              // console.log("✅ Found CodingTest:", codingTest.title);
-              // console.log("📝 String testId:", codingTest.testId);
-              // console.log("📝 MongoDB _id:", codingTest._id);
+            let testResult = await TestResult.findOne({
+              testId: stringTestId,
+            });
 
-              // ✅ Step 2: Use the string testId to find/update TestResult
-              const stringTestId = codingTest.testId; // "TEST_1783766498906"
-
-              // Find or create TestResult using the string testId
-              let testResult = await TestResult.findOne({
+            if (!testResult) {
+              testResult = new TestResult({
                 testId: stringTestId,
+                testTitle: codingTest.title || "Untitled Test",
+                subject: codingTest.subject || "",
+                topic: codingTest.topic || "",
+                college: codingTest.college || "",
+                collegeId: codingTest.collegeId || null,
+                departmentId: codingTest.departmentId || null,
+                totalQuestions: codingTest.totalQuestions || 0,
+                passingPercentage: codingTest.passingPercentage || 40,
+                students: [],
+                stats: {
+                  totalStudents: 0,
+                  passedStudents: 0,
+                  failedStudents: 0,
+                  averageScore: 0,
+                  passRate: 0,
+                },
+                generatedAt: new Date(),
+                updatedAt: new Date(),
               });
+            }
 
-              if (!testResult) {
-                // Create new TestResult if it doesn't exist
-                testResult = new TestResult({
-                  testId: stringTestId,
-                  testTitle: codingTest.title || "Untitled Test",
-                  subject: codingTest.subject || "",
-                  topic: codingTest.topic || "",
-                  college: codingTest.college || "",
-                  totalQuestions: codingTest.totalQuestions || 0,
-                  passingPercentage: codingTest.passingPercentage || 40,
-                  students: [],
-                  stats: {
-                    totalStudents: 0,
-                    passedStudents: 0,
-                    failedStudents: 0,
-                    averageScore: 0,
-                    passRate: 0,
-                  },
-                  generatedAt: new Date(),
-                  updatedAt: new Date(),
-                });
-                // console.log("🆕 New TestResult created");
-              } else {
-                console.log("📝 Existing TestResult found");
-              }
+            let studentIndex = testResult.students.findIndex(
+              (s) => s.userId.toString() === userId.toString(),
+            );
 
-              // ✅ Step 3: Find or create student entry
-              let studentIndex = testResult.students.findIndex(
-                (s) => s.userId.toString() === userId.toString(),
+            const trSolution = {
+              problemId: problemDocId,
+              problemTitle: problem.title || "Untitled Problem",
+              status: enumStatus,
+              code: code || "",
+              language: language || "cpp",
+              passedTests: passedCount || 0,
+              totalTests: totalCount || 0,
+              executionTime: totalExecutionTime || 0,
+              submittedAt: new Date(),
+            };
+
+            if (studentIndex === -1) {
+              const User = mongoose.model("User");
+              const user = await User.findById(userId);
+
+              // ✅ Preserve real startTime from CodingTestAttempt if available
+              const realStartTime = test.startTime || new Date();
+
+              testResult.students.push({
+                userId: userId,
+                userEmail: user?.email || "Unknown",
+                userName: user?.fullName || "Unknown Student",
+                solutions: [trSolution],
+                totalSolved: 1,
+                totalProblems: 1,
+                percentage: 100,
+                passed: true,
+                status: "in_progress",
+                startTime: realStartTime,
+                endTime: null,
+                timeTaken: 0,
+              });
+            } else {
+              const student = testResult.students[studentIndex];
+
+              const existingIdx = student.solutions.findIndex(
+                (s) =>
+                  s.problemId &&
+                  s.problemId.toString() === problemDocId.toString(),
               );
 
-              // ✅ Step 4: Create solution data
-              const solutionData = {
-                problemId: problem._id,
-                problemTitle: problem.title || "Untitled Problem",
-                status: enumStatus, // "accepted"
-                code: code || "",
-                language: language || "cpp",
-                passedTests: result.passedCount || 0,
-                totalTests: result.totalCount || 0,
-                executionTime: totalExecutionTime || 0,
-                submittedAt: new Date(),
-              };
-
-              if (studentIndex === -1) {
-                // ✅ New student
-                const User = mongoose.model("User");
-                const user = await User.findById(userId);
-
-                testResult.students.push({
-                  userId: userId,
-                  userEmail: user?.email || "Unknown",
-                  userName: user?.fullName || "Unknown Student",
-                  solutions: [solutionData],
-                  totalSolved: 1,
-                  totalProblems: 1,
-                  percentage: 100,
-                  passed: true,
-                  status: "in_progress",
-                  startTime: new Date(),
-                  endTime: null,
-                  timeTaken: 0,
-                });
-                // console.log("✅ New student added to TestResult");
+              if (existingIdx !== -1) {
+                student.solutions[existingIdx] = trSolution;
               } else {
-                // ✅ Existing student
-                const student = testResult.students[studentIndex];
-
-                // Check if problem already exists
-                const existingIndex = student.solutions.findIndex(
-                  (s) =>
-                    s.problemId &&
-                    s.problemId.toString() === problem._id.toString(),
-                );
-
-                if (existingIndex !== -1) {
-                  // Update existing solution
-                  student.solutions[existingIndex] = solutionData;
-                  // console.log(`🔄 Updated solution for ${problem.problemId}`);
-                } else {
-                  // Add new solution
-                  student.solutions.push(solutionData);
-                  // console.log(`➕ Added solution for ${problem.problemId}`);
-                }
-
-                // Recalculate student stats
-                const acceptedSolutions = student.solutions.filter(
-                  (s) => s.status === "accepted",
-                );
-                student.totalSolved = acceptedSolutions.length;
-                student.totalProblems = student.solutions.length;
-                student.percentage =
-                  student.totalProblems > 0
-                    ? (acceptedSolutions.length / student.totalProblems) * 100
-                    : 0;
-                student.passed =
-                  student.percentage >= (codingTest.passingPercentage || 40);
-
-                // Update status if all problems solved
-                // if (
-                //   student.totalSolved === codingTest.totalQuestions &&
-                //   codingTest.totalQuestions > 0
-                // ) {
-                //   student.status = "completed";
-                //   student.endTime = new Date();
-                // }
-
-                console.log(
-                  `📊 Student stats: ${student.totalSolved}/${student.totalProblems} (${student.percentage}%)`,
-                );
+                student.solutions.push(trSolution);
               }
 
-              // ✅ Step 5: Recalculate overall stats
-              const students = testResult.students;
-              const totalStudents = students.length;
-              const passedStudents = students.filter((s) => s.passed).length;
-              const averageScore =
-                totalStudents > 0
-                  ? students.reduce((sum, s) => sum + s.percentage, 0) /
-                    totalStudents
+              const acceptedTr = student.solutions.filter(
+                (s) => s.status === "accepted",
+              );
+              student.totalSolved = acceptedTr.length;
+              student.totalProblems = student.solutions.length;
+              student.percentage =
+                student.totalProblems > 0
+                  ? (acceptedTr.length / student.totalProblems) * 100
                   : 0;
-
-              testResult.stats = {
-                totalStudents: totalStudents,
-                passedStudents: passedStudents,
-                failedStudents: totalStudents - passedStudents,
-                averageScore: parseFloat(averageScore.toFixed(2)),
-                passRate:
-                  totalStudents > 0
-                    ? (passedStudents / totalStudents) * 100
-                    : 0,
-              };
-
-              testResult.updatedAt = new Date();
-              await testResult.save();
-
-              // console.log(`✅✅✅ TestResult updated successfully!`);
-              // console.log(`📊 Test: ${codingTest.title}`);
-              // console.log(
-              //   `📊 Students: ${totalStudents}, Passed: ${passedStudents}`,
-              // );
+              student.passed =
+                student.percentage >= (codingTest.passingPercentage || 40);
             }
+
+            const students = testResult.students;
+            const totalStudents = students.length;
+            const passedStudents = students.filter((s) => s.passed).length;
+            const averageScore =
+              totalStudents > 0
+                ? students.reduce((sum, s) => sum + s.percentage, 0) /
+                  totalStudents
+                : 0;
+
+            testResult.stats = {
+              totalStudents: totalStudents,
+              passedStudents: passedStudents,
+              failedStudents: totalStudents - passedStudents,
+              averageScore: parseFloat(averageScore.toFixed(2)),
+              passRate:
+                totalStudents > 0 ? (passedStudents / totalStudents) * 100 : 0,
+            };
+
+            testResult.updatedAt = new Date();
+            await testResult.save();
           } catch (error) {
             console.error("❌ Error updating TestResult:", error);
           }
@@ -575,59 +509,74 @@ router.post(
       } catch (error) {
         console.error("❌❌❌ ERROR saving to CodingTestAttempt:", error);
         console.error("Error details:", error.errors || error.message);
-        // Don't fail the whole request if this fails
       }
 
-      // ============================================
-      // Update problem stats
-      // ============================================
-      problem.totalSubmissions = (problem.totalSubmissions || 0) + 1;
+      // ✅ Increment submission counter (every attempt counts)
+      problem.submissions = (problem.submissions || 0) + 1;
+
+      // ✅ Increment accepted counter only when submission is Accepted
       if (enumStatus === "accepted") {
-        problem.acceptedSubmissions = (problem.acceptedSubmissions || 0) + 1;
+        problem.accepted = (problem.accepted || 0) + 1;
       }
-      problem.acceptanceRate =
-        problem.totalSubmissions > 0
-          ? (problem.acceptedSubmissions / problem.totalSubmissions) * 100
-          : 0;
-      await problem.save();
 
-      // ============================================
-      // Return response
-      // ============================================
-      const firstError = result.results.find(
-        (r) => r.error && r.error.length > 0,
-      );
-      const sampleTestResults = result.results.filter((r, index) => {
-        const testCase = testCases[index];
-        return testCase && !testCase.isHidden;
-      });
-      const hiddenTestResults = result.results.filter((r, index) => {
-        const testCase = testCases[index];
-        return testCase && testCase.isHidden;
-      });
+      // ✅ Compute and store acceptance rate
+      problem.acceptanceRate =
+        problem.submissions > 0
+          ? parseFloat(
+              ((problem.accepted / problem.submissions) * 100).toFixed(2),
+            )
+          : 0;
+
+      codingTest.markModified("problems");
+      await codingTest.save();
+
+      /* ---------- Response ---------- */
+      const firstError = allResults.find((r) => r.error && r.error.length > 0);
+
+      // ✅ Examples with full data
+      const exampleResults = exampleRun.results.map((r, idx) => ({
+        testCase: idx + 1,
+        passed: r.passed,
+        status: r.status,
+        input: examples[idx].input || "",
+        expected: examples[idx].output || "",
+        output: r.output || "",
+        error: r.error || undefined,
+        executionTime: r.executionTime || 0,
+        memoryUsed: r.memoryUsed || 0,
+        isHidden: false,
+      }));
+
+      const examplePassed = exampleResults.filter((r) => r.passed).length;
+      const hiddenPassed = hiddenRun.results.filter((r) => r.passed).length;
 
       res.json({
         success: true,
         status: displayStatus,
-        passedTests: result.passedCount,
-        totalTests: result.totalCount,
-        score: result.score,
+        passedTests: passedCount,
+        totalTests: totalCount,
+        score,
         executionTime: parseFloat(totalExecutionTime) || 0,
-        isSaved: true,
-        testResults: sampleTestResults.map((r) => ({
-          testCase: r.testCase,
-          passed: r.passed,
-          status: r.status,
-          input: r.input,
-          expected: r.expected,
-          output: r.output,
-          error: r.error || undefined,
-          executionTime: r.executionTime,
-          memoryUsed: r.memoryUsed,
-          isHidden: false,
-        })),
-        hiddenCount: hiddenTestResults.length,
-        hiddenPassed: hiddenTestResults.filter((r) => r.passed).length,
+        isSaved: enumStatus === "accepted",
+
+        // ✅ Visible examples (full data)
+        exampleResults,
+        exampleSummary: {
+          passed: examplePassed,
+          total: exampleResults.length,
+        },
+
+        // ✅ Hidden tests (count only)
+        hiddenSummary: {
+          passed: hiddenPassed,
+          total: hiddenRun.results.length,
+        },
+
+        // ✅ Backwards-compatible fields
+        testResults: exampleResults,
+        hiddenCount: hiddenRun.results.length,
+        hiddenPassed,
+
         errorMessage: firstError?.error || undefined,
       });
     } catch (error) {
@@ -677,7 +626,6 @@ router.get("/test/:testId/results", protect, async (req, res) => {
         passedCount: test.passedCount,
         percentage: test.percentage,
         passed: test.passed,
-
         solutions: test.solutions,
       },
       userStats: {
@@ -695,10 +643,6 @@ router.get("/test/:testId/results", protect, async (req, res) => {
   }
 });
 
-// ============================================
-// GET /api/coding/user/stats
-// Get overall user stats
-// ============================================
 router.get("/user/stats", protect, async (req, res) => {
   try {
     const userId = req.userId;
@@ -746,16 +690,11 @@ router.get("/user/stats", protect, async (req, res) => {
 
 // ============================================
 // POST /api/coding/run-samples
-// Run ONLY sample test cases (isHidden: false)
-// Does NOT save to database
+// Runs EXAMPLES only (visible)
 // ============================================
 router.post("/run-samples", async (req, res) => {
   try {
-    const { problemId, code, language } = req.body;
-
-    // console.log(`🧪 ===== RUN SAMPLES ONLY =====`);
-    // console.log(`📝 Problem: ${problemId}`);
-    // console.log(`💻 Language: ${language}`);
+    const { problemId, code, language, testId } = req.body;
 
     const languageId = judge0Service.getLanguageId(language);
     if (!languageId) {
@@ -765,31 +704,49 @@ router.post("/run-samples", async (req, res) => {
       });
     }
 
-    const problem = await Problem.findOne({ problemId: problemId });
+    if (!testId) {
+      return res.status(400).json({
+        success: false,
+        error: "testId is required",
+      });
+    }
+
+    const codingTest = await CodingTest.findOne({ testId });
+    if (!codingTest) {
+      return res.status(404).json({
+        success: false,
+        error: "Test not found",
+      });
+    }
+
+    const problem = codingTest.problems.find((p) => p.problemId === problemId);
     if (!problem) {
       return res.status(404).json({
         success: false,
-        error: "Problem not found",
+        error: "Problem not found for this test",
       });
     }
 
-    // ✅ ONLY sample test cases (isHidden: false)
-    const sampleTestCases = problem.testCases.filter((tc) => !tc.isHidden);
-    // console.log(`📝 Sample test cases: ${sampleTestCases.length}`);
-
-    if (sampleTestCases.length === 0) {
+    // ✅ Only examples (visible)
+    const examples = problem.examples || [];
+    if (examples.length === 0) {
       return res.status(400).json({
         success: false,
-        error: "No sample test cases found for this problem",
+        error: "No example test cases found for this problem",
       });
     }
+
+    const exampleCasesForJudge = examples.map((ex) => ({
+      input: ex.input,
+      expectedOutput: ex.output,
+    }));
 
     let result;
     try {
       result = await judge0Service.runTestCasesBatch(
         code,
         language,
-        sampleTestCases,
+        exampleCasesForJudge,
       );
     } catch (error) {
       console.error("❌ Judge0 execution error:", error);
@@ -837,13 +794,13 @@ router.post("/run-samples", async (req, res) => {
         0,
       ),
       isSaved: false,
-      testResults: result.results.map((r) => ({
-        testCase: r.testCase,
+      testResults: result.results.map((r, idx) => ({
+        testCase: idx + 1,
         passed: r.passed,
         status: r.status,
-        input: r.input,
-        expected: r.expected,
-        output: r.output,
+        input: examples[idx].input || "",
+        expected: examples[idx].output || "",
+        output: r.output || "",
         error: r.error || undefined,
         executionTime: r.executionTime,
         memoryUsed: r.memoryUsed,
@@ -864,31 +821,42 @@ router.post("/run-samples", async (req, res) => {
 
 // ============================================
 // GET /api/coding/problem/:problemId/testcases
-// Get sample test cases for display
+// Returns ONLY examples (visible)
 // ============================================
 router.get("/problem/:problemId/testcases", async (req, res) => {
   try {
     const { problemId } = req.params;
-    // console.log(`📡 Fetching test cases for problem: ${problemId}`);
+    const { testId } = req.query;
 
-    const problem = await Problem.findOne({ problemId: problemId });
-
-    if (!problem) {
-      return res.status(404).json({
+    if (!testId) {
+      return res.status(400).json({
         success: false,
-        error: "Problem not found",
+        error: "testId query param is required",
       });
     }
 
-    const sampleTestCases = problem.testCases
-      .filter((tc) => !tc.isHidden)
-      .map((tc) => ({
-        input: tc.input,
-        expectedOutput: tc.expectedOutput,
-        explanation: tc.explanation || "",
-      }));
+    const codingTest = await CodingTest.findOne({ testId });
+    if (!codingTest) {
+      return res.status(404).json({
+        success: false,
+        error: "Test not found",
+      });
+    }
 
-    // console.log(`✅ Found ${sampleTestCases.length} sample test cases`);
+    const problem = codingTest.problems.find((p) => p.problemId === problemId);
+    if (!problem) {
+      return res.status(404).json({
+        success: false,
+        error: "Problem not found for this test",
+      });
+    }
+
+    // ✅ Only examples (visible). Never expose testCases (hidden).
+    const sampleTestCases = (problem.examples || []).map((ex) => ({
+      input: ex.input,
+      expectedOutput: ex.output,
+      explanation: ex.explanation || "",
+    }));
 
     res.json({
       success: true,
@@ -904,10 +872,6 @@ router.get("/problem/:problemId/testcases", async (req, res) => {
   }
 });
 
-// ============================================
-// GET /api/coding/submissions/:userId
-// Get user submissions
-// ============================================
 router.get("/submissions/:userId", async (req, res) => {
   try {
     const { userId } = req.params;
@@ -934,15 +898,15 @@ router.post("/update-start-time", protect, async (req, res) => {
     const { testId, startTime } = req.body;
     const userId = req.userId;
 
-    // console.log(`📝 Updating start time for user ${userId} on test ${testId}`);
-
-    // Find the CodingTest
+    // ─────────────────────────────────────────────
+    // 1. Resolve CodingTest by any form of testId
+    // ─────────────────────────────────────────────
     let codingTest = null;
     if (mongoose.Types.ObjectId.isValid(testId)) {
       codingTest = await CodingTest.findById(testId);
     }
     if (!codingTest) {
-      codingTest = await CodingTest.findOne({ testId: testId });
+      codingTest = await CodingTest.findOne({ testId });
     }
     if (!codingTest) {
       codingTest = await CodingTest.findOne({ testId: `TEST_${testId}` });
@@ -957,17 +921,20 @@ router.post("/update-start-time", protect, async (req, res) => {
 
     const stringTestId = codingTest.testId;
 
-    // Find or create TestResult
+    // ─────────────────────────────────────────────
+    // 2. Find or create the TestResult
+    // ─────────────────────────────────────────────
     let testResult = await TestResult.findOne({ testId: stringTestId });
 
     if (!testResult) {
-      // Create new TestResult if it doesn't exist
       testResult = new TestResult({
         testId: stringTestId,
         testTitle: codingTest.title || "Untitled Test",
         subject: codingTest.subject || "",
         topic: codingTest.topic || "",
         college: codingTest.college || "",
+        collegeId: codingTest.collegeId || null,
+        departmentId: codingTest.departmentId || null,
         totalQuestions: codingTest.totalQuestions || 0,
         passingPercentage: codingTest.passingPercentage || 40,
         students: [],
@@ -981,15 +948,21 @@ router.post("/update-start-time", protect, async (req, res) => {
         generatedAt: new Date(),
         updatedAt: new Date(),
       });
+    } else if (!testResult.collegeId && codingTest.collegeId) {
+      testResult.collegeId = codingTest.collegeId;
+      if (codingTest.departmentId && !testResult.departmentId) {
+        testResult.departmentId = codingTest.departmentId;
+      }
     }
 
-    // Find or create student
+    // ─────────────────────────────────────────────
+    // 3. Find or create the student row — WITHOUT overwriting existing startTime
+    // ─────────────────────────────────────────────
     let studentIndex = testResult.students.findIndex(
       (s) => s.userId.toString() === userId.toString(),
     );
 
     if (studentIndex === -1) {
-      // Get user details
       const User = mongoose.model("User");
       const user = await User.findById(userId);
 
@@ -1007,22 +980,40 @@ router.post("/update-start-time", protect, async (req, res) => {
         passed: false,
         timeTaken: 0,
       });
-      // console.log("✅ New student added to TestResult");
     } else {
-      // Update existing student's start time
-      testResult.students[studentIndex].startTime = new Date(startTime);
-      testResult.students[studentIndex].status = "in_progress";
-      // console.log("✅ Updated student start time");
+      const student = testResult.students[studentIndex];
+
+      // ✅ NEVER overwrite an existing startTime
+      if (!student.startTime) {
+        student.startTime = new Date(startTime);
+      }
+
+      // ✅ Only flip to in_progress if not already finished
+      if (
+        student.status === "not_started" ||
+        !student.status ||
+        student.status === "in_progress"
+      ) {
+        student.status = "in_progress";
+      }
     }
 
+    testResult.updatedAt = new Date();
     await testResult.save();
+
+    // ─────────────────────────────────────────────
+    // 4. Respond with the ACTUAL start time on record
+    // ─────────────────────────────────────────────
+    const savedStudent = testResult.students.find(
+      (s) => s.userId.toString() === userId.toString(),
+    );
 
     res.json({
       success: true,
       message: "Start time updated successfully",
       data: {
         testId: stringTestId,
-        startTime: startTime,
+        startTime: savedStudent?.startTime || startTime,
       },
     });
   } catch (error) {
@@ -1034,27 +1025,19 @@ router.post("/update-start-time", protect, async (req, res) => {
   }
 });
 
-// ============================================
-// ✅ CHECK ATTEMPT STATUS
-// ============================================
 router.get("/attempt-status/:testId", protect, async (req, res) => {
   try {
     const { testId } = req.params;
     const userId = req.userId;
 
-    // console.log(`🔍 Checking attempt for user ${userId} on test ${testId}`);
-
-    // ✅ Try to find by _id first (MongoDB ObjectId)
     let codingTest = null;
 
     if (mongoose.Types.ObjectId.isValid(testId)) {
       codingTest = await CodingTest.findById(testId);
     }
-
     if (!codingTest) {
       codingTest = await CodingTest.findOne({ testId: testId });
     }
-
     if (!codingTest) {
       codingTest = await CodingTest.findOne({ testId: `TEST_${testId}` });
     }
@@ -1066,17 +1049,13 @@ router.get("/attempt-status/:testId", protect, async (req, res) => {
       });
     }
 
-    // console.log(`✅ Found CodingTest: ${codingTest.title}`);
-    // console.log(`📝 String testId: ${codingTest.testId}`);
-
     const stringTestId = codingTest.testId;
     let hasAttempted = false;
     let attemptStatus = null;
     let attemptData = null;
-    let solutions = []; // ✅ Initialize solutions array
+    let solutions = [];
     let startTime = null;
 
-    // Check in TestResult
     const testResult = await TestResult.findOne({ testId: stringTestId });
 
     if (testResult) {
@@ -1087,7 +1066,7 @@ router.get("/attempt-status/:testId", protect, async (req, res) => {
       if (student) {
         hasAttempted = true;
         attemptStatus = student.status || "in_progress";
-        solutions = student.solutions || []; // ✅ Get solutions from TestResult
+        solutions = student.solutions || [];
         startTime = student.startTime || null;
         attemptData = {
           startTime: student.startTime,
@@ -1100,7 +1079,6 @@ router.get("/attempt-status/:testId", protect, async (req, res) => {
       }
     }
 
-    // Also check in CodingTestAttempt
     if (!hasAttempted) {
       const userAttempt = await CodingTestAttempt.findOne({ userId: userId });
 
@@ -1109,7 +1087,7 @@ router.get("/attempt-status/:testId", protect, async (req, res) => {
         if (testAttempt) {
           hasAttempted = true;
           attemptStatus = testAttempt.status || "in_progress";
-          solutions = testAttempt.solutions || []; // ✅ Get solutions from CodingTestAttempt
+          solutions = testAttempt.solutions || [];
           startTime = testAttempt.startTime || null;
           attemptData = {
             startTime: testAttempt.startTime,
@@ -1123,8 +1101,28 @@ router.get("/attempt-status/:testId", protect, async (req, res) => {
       }
     }
 
-    // ✅ Log solutions count
-    // console.log(`📊 Solutions found: ${solutions.length}`);
+    // ─────────────────────────────────────────────
+    // ✅ Build solvedProblemIds — map ObjectId → string problemId
+    // ─────────────────────────────────────────────
+    const problemIdMap = new Map();
+    (codingTest.problems || []).forEach((p) => {
+      if (p._id) {
+        problemIdMap.set(p._id.toString(), p.problemId);
+      }
+    });
+
+    const solvedProblemIds = (solutions || [])
+      .filter(
+        (s) =>
+          s.status === "accepted" ||
+          s.status === "Accepted" ||
+          s.status === "Accepted ✅",
+      )
+      .map((s) => {
+        const rawId = s.problemId?.toString();
+        return problemIdMap.get(rawId) || rawId;
+      })
+      .filter(Boolean);
 
     res.json({
       success: true,
@@ -1137,7 +1135,8 @@ router.get("/attempt-status/:testId", protect, async (req, res) => {
           ? "You have already submitted this test"
           : "You have already started this test"
         : "You can start this test",
-      solutions: solutions, // ✅ Return solutions at root level
+      solutions: solutions,
+      solvedProblemIds, // ✅ NEW — clean array of string-form problemIds
       passedCount: attemptData?.totalSolved || 0,
       totalProblems: attemptData?.totalProblems || 0,
       percentage: attemptData?.percentage || 0,
@@ -1152,35 +1151,20 @@ router.get("/attempt-status/:testId", protect, async (req, res) => {
   }
 });
 
-// ============================================
-// ✅ GET TEST STATUS (with timer)
-// ============================================
 router.get("/test-status/:testId", protect, async (req, res) => {
   try {
     const { testId } = req.params;
 
-    // console.log(`🔍 Looking for test status with ID: ${testId}`);
-
-    // ✅ Try to find by _id first
     let codingTest = null;
 
     if (mongoose.Types.ObjectId.isValid(testId)) {
       codingTest = await CodingTest.findById(testId);
-      // console.log(`🔍 Searching by _id: ${codingTest ? "Found" : "Not found"}`);
     }
-
     if (!codingTest) {
       codingTest = await CodingTest.findOne({ testId: testId });
-      // console.log(
-      //   `🔍 Searching by testId string: ${codingTest ? "Found" : "Not found"}`,
-      // );
     }
-
     if (!codingTest) {
       codingTest = await CodingTest.findOne({ testId: `TEST_${testId}` });
-      // console.log(
-      //   `🔍 Searching by TEST_ prefix: ${codingTest ? "Found" : "Not found"}`,
-      // );
     }
 
     if (!codingTest) {
@@ -1189,8 +1173,6 @@ router.get("/test-status/:testId", protect, async (req, res) => {
         error: "Test not found",
       });
     }
-
-    // console.log(`✅ Found CodingTest: ${codingTest.title}`);
 
     const now = new Date();
     const startTime = new Date(codingTest.startTime);
@@ -1221,7 +1203,9 @@ router.get("/test-status/:testId", protect, async (req, res) => {
 });
 
 // ============================================
-// ✅ SUBMIT COMPLETE TEST - FIXED
+// POST /api/coding/submit-test
+// Handles both manual submit and auto-submit on timer expiry.
+// Preserves real startTime, clamps timeTaken, backfills missing fields.
 // ============================================
 router.post("/submit-test", protect, async (req, res) => {
   try {
@@ -1231,14 +1215,16 @@ router.post("/submit-test", protect, async (req, res) => {
     console.log(`📤 Submitting test: ${testId} for user: ${userId}`);
     console.log(`📤 isAuto: ${isAuto}`);
 
-    // ✅ Find the coding test
+    // ─────────────────────────────────────────────
+    // 1. Resolve CodingTest
+    // ─────────────────────────────────────────────
     let codingTest = null;
 
     if (mongoose.Types.ObjectId.isValid(testId)) {
       codingTest = await CodingTest.findById(testId);
     }
     if (!codingTest) {
-      codingTest = await CodingTest.findOne({ testId: testId });
+      codingTest = await CodingTest.findOne({ testId });
     }
     if (!codingTest) {
       codingTest = await CodingTest.findOne({ testId: `TEST_${testId}` });
@@ -1251,16 +1237,12 @@ router.post("/submit-test", protect, async (req, res) => {
       });
     }
 
-    // console.log(`✅ Found CodingTest: ${codingTest.title}`);
-    // console.log(`📝 MongoDB _id: ${codingTest._id}`);
-    // console.log(`📝 String testId: ${codingTest.testId}`);
-
     const stringTestId = codingTest.testId;
     const mongoId = codingTest._id.toString();
 
-    // ============================================
-    // ✅ STEP 1: Check in TestResult FIRST
-    // ============================================
+    // ─────────────────────────────────────────────
+    // 2. Locate student in TestResult + CodingTestAttempt
+    // ─────────────────────────────────────────────
     let testResult = await TestResult.findOne({ testId: stringTestId });
     let foundInTestResult = false;
     let studentData = null;
@@ -1277,24 +1259,15 @@ router.post("/submit-test", protect, async (req, res) => {
         studentData = testResult.students[studentIndex];
         testStatus = studentData.status || "in_progress";
         solutions = studentData.solutions || [];
-        // console.log(
-        //   `✅ Found student in TestResult with status: ${testStatus}`,
-        // );
-        // console.log(`📊 Solutions found: ${solutions.length}`);
       }
     }
 
-    // ============================================
-    // ✅ STEP 2: Check in CodingTestAttempt
-    // ============================================
-    let userAttempt = await CodingTestAttempt.findOne({ userId: userId });
+    let userAttempt = await CodingTestAttempt.findOne({ userId });
     let foundInAttempt = false;
     let attemptTestIndex = -1;
     let testAttempt = null;
-    if (userAttempt) {
-      // console.log(`📊 User attempts found: ${userAttempt.tests.length}`);
 
-      // Try to find by string testId
+    if (userAttempt) {
       attemptTestIndex = userAttempt.tests.findIndex(
         (t) => t.testId === stringTestId,
       );
@@ -1314,37 +1287,23 @@ router.post("/submit-test", protect, async (req, res) => {
         testAttempt = userAttempt.tests[attemptTestIndex];
         testStatus = testAttempt.status || "in_progress";
         solutions = testAttempt.solutions || [];
-        // console.log(
-        //   `✅ Found test in CodingTestAttempt with status: ${testStatus}`,
-        // );
-        // console.log(`📊 Solutions found: ${solutions.length}`);
       }
     }
 
-    // ============================================
-    // ✅ STEP 3: If not found in either, return error
-    // ============================================
     if (!foundInTestResult && !foundInAttempt) {
-      // console.log(
-      //   "❌ Test not found in either TestResult or CodingTestAttempt!",
-      // );
-
       return res.status(404).json({
         success: false,
         error: "No test attempt found. Please start & attempt the test first.",
         details: {
-          testId: testId,
-          stringTestId: stringTestId,
-          mongoId: mongoId,
-          foundInTestResult: foundInTestResult,
-          foundInAttempt: foundInAttempt,
+          testId,
+          stringTestId,
+          mongoId,
+          foundInTestResult,
+          foundInAttempt,
         },
       });
     }
 
-    // ============================================
-    // ✅ STEP 4: Check if already submitted
-    // ============================================
     if (testStatus === "submitted" || testStatus === "completed") {
       return res.status(400).json({
         success: false,
@@ -1352,10 +1311,9 @@ router.post("/submit-test", protect, async (req, res) => {
       });
     }
 
-    // ============================================
-    // ✅ STEP 5: Calculate stats from solutions
-    // ============================================
-
+    // ─────────────────────────────────────────────
+    // 3. Compute results + timings (WITH SANITY CHECKS)
+    // ─────────────────────────────────────────────
     const acceptedSolutions = solutions.filter((s) => s.status === "accepted");
     const totalSolved = acceptedSolutions.length;
     const totalProblems = codingTest.totalQuestions || solutions.length || 0;
@@ -1363,18 +1321,27 @@ router.post("/submit-test", protect, async (req, res) => {
       totalProblems > 0 ? (totalSolved / totalProblems) * 100 : 0;
     const passed = percentage >= (codingTest.passingPercentage || 40);
 
-    let timeTaken = 0;
-    const startTime = studentData?.startTime || testAttempt?.startTime;
-    if (startTime) {
-      const end = new Date(endTime || new Date());
-      const start = new Date(startTime);
-      timeTaken = Math.round((end - start) / (1000 * 60)); // Convert to minutes
-    }
-    // console.log(`📊 Time Taken: ${timeTaken} minutes`);
+    // ✅ Resolve real startTime — prefer TestResult, fall back to Attempt
+    const realStartTime =
+      studentData?.startTime || testAttempt?.startTime || null;
 
-    // ============================================
-    // ✅ STEP 6: Update TestResult
-    // ============================================
+    // ✅ Resolve real endTime — never before startTime
+    const now = new Date();
+    const incomingEnd = endTime ? new Date(endTime) : now;
+    const startMs = realStartTime
+      ? new Date(realStartTime).getTime()
+      : now.getTime();
+    const endMs = Math.max(startMs, incomingEnd.getTime());
+    const realEndTime = new Date(endMs);
+
+    // ✅ Recompute timeTaken safely
+    const timeTaken = realStartTime
+      ? Math.max(0, Math.round((endMs - startMs) / 60000))
+      : 0;
+
+    // ─────────────────────────────────────────────
+    // 4. Update TestResult
+    // ─────────────────────────────────────────────
     if (foundInTestResult && testResult) {
       const studentIndex = testResult.students.findIndex(
         (s) => s.userId.toString() === userId.toString(),
@@ -1383,43 +1350,44 @@ router.post("/submit-test", protect, async (req, res) => {
       if (studentIndex !== -1) {
         const student = testResult.students[studentIndex];
 
+        // ✅ Backfill startTime if missing
+        if (!student.startTime && realStartTime) {
+          student.startTime = new Date(realStartTime);
+        }
+
         student.status = "submitted";
-        student.endTime = new Date(endTime || new Date());
+        student.endTime = realEndTime;
+        student.submittedAt = now;
         student.totalSolved = totalSolved;
         student.totalProblems = totalProblems;
         student.percentage = percentage;
         student.passed = passed;
-        student.submittedAt = new Date();
         student.solutions = solutions;
         student.timeTaken = timeTaken;
+        student.autoSubmitted = !!isAuto;
 
-        // Update overall stats
         const students = testResult.students;
         const totalStudents = students.length;
         const passedStudents = students.filter((s) => s.passed).length;
         const averageScore =
           totalStudents > 0
-            ? students.reduce((sum, s) => sum + s.percentage, 0) / totalStudents
+            ? students.reduce((sum, s) => sum + (s.percentage || 0), 0) /
+              totalStudents
             : 0;
 
         testResult.stats = {
-          totalStudents: totalStudents,
-          passedStudents: passedStudents,
+          totalStudents,
+          passedStudents,
           failedStudents: totalStudents - passedStudents,
           averageScore: parseFloat(averageScore.toFixed(2)),
           passRate:
             totalStudents > 0 ? (passedStudents / totalStudents) * 100 : 0,
         };
 
-        testResult.updatedAt = new Date();
+        testResult.updatedAt = now;
         await testResult.save();
-
-        // console.log(`✅ TestResult updated successfully!`);
       }
     } else if (!foundInTestResult && foundInAttempt) {
-      // ============================================
-      // ✅ STEP 7: Create TestResult if it doesn't exist
-      // ============================================
       const User = mongoose.model("User");
       const user = await User.findById(userId);
 
@@ -1430,6 +1398,8 @@ router.post("/submit-test", protect, async (req, res) => {
           subject: codingTest.subject || "",
           topic: codingTest.topic || "",
           college: codingTest.college || "",
+          collegeId: codingTest.collegeId || null,
+          departmentId: codingTest.departmentId || null,
           totalQuestions: codingTest.totalQuestions || 0,
           passingPercentage: codingTest.passingPercentage || 40,
           students: [],
@@ -1440,72 +1410,97 @@ router.post("/submit-test", protect, async (req, res) => {
             averageScore: 0,
             passRate: 0,
           },
-          generatedAt: new Date(),
-          updatedAt: new Date(),
+          generatedAt: now,
+          updatedAt: now,
         });
       }
 
+      // ✅ Use realStartTime — not `new Date()`
+      const studentStartTime = realStartTime ? new Date(realStartTime) : now;
+
       testResult.students.push({
-        userId: userId,
+        userId,
         userEmail: user?.email || "Unknown",
         userName: user?.fullName || "Unknown Student",
-        startTime: new Date(),
-        endTime: new Date(endTime || new Date()),
+        startTime: studentStartTime,
+        endTime: realEndTime,
         status: "submitted",
-        solutions: solutions,
-        totalSolved: totalSolved,
-        totalProblems: totalProblems,
-        percentage: percentage,
-        passed: passed,
-        timeTaken: timeTaken,
-        submittedAt: new Date(),
+        solutions,
+        totalSolved,
+        totalProblems,
+        percentage,
+        passed,
+        timeTaken,
+        submittedAt: now,
+        autoSubmitted: !!isAuto,
       });
 
+      // Recompute stats
+      const students = testResult.students;
+      const totalStudents = students.length;
+      const passedStudents = students.filter((s) => s.passed).length;
+      const averageScore =
+        totalStudents > 0
+          ? students.reduce((sum, s) => sum + (s.percentage || 0), 0) /
+            totalStudents
+          : 0;
+
+      testResult.stats = {
+        totalStudents,
+        passedStudents,
+        failedStudents: totalStudents - passedStudents,
+        averageScore: parseFloat(averageScore.toFixed(2)),
+        passRate:
+          totalStudents > 0 ? (passedStudents / totalStudents) * 100 : 0,
+      };
+
+      testResult.updatedAt = now;
       await testResult.save();
-      // console.log(`✅ TestResult created from CodingTestAttempt!`);
     }
 
-    // ============================================
-    // ✅ STEP 8: Update CodingTestAttempt if found
-    // ============================================
+    // ─────────────────────────────────────────────
+    // 5. Update CodingTestAttempt
+    // ─────────────────────────────────────────────
     if (foundInAttempt && userAttempt && attemptTestIndex !== -1) {
       const testAttempt = userAttempt.tests[attemptTestIndex];
 
+      // ✅ Backfill startTime if missing
+      if (!testAttempt.startTime && realStartTime) {
+        testAttempt.startTime = new Date(realStartTime);
+      }
+
       testAttempt.status = "submitted";
-      testAttempt.endTime = new Date(endTime || new Date());
-      testAttempt.submittedAt = new Date();
+      testAttempt.endTime = realEndTime;
+      testAttempt.submittedAt = now;
       testAttempt.passedCount = totalSolved;
       testAttempt.totalProblems = totalProblems;
       testAttempt.percentage = percentage;
       testAttempt.passed = passed;
       testAttempt.solutions = solutions;
       testAttempt.timeTaken = timeTaken;
+      testAttempt.autoSubmitted = !!isAuto;
 
       userAttempt.markModified("tests");
       await userAttempt.save();
-
-      // console.log(`✅ CodingTestAttempt updated successfully!`);
     } else if (!foundInAttempt) {
-      // ============================================
-      // ✅ STEP 9: Create CodingTestAttempt if it doesn't exist
-      // ============================================
       const newTest = {
         testId: stringTestId,
         status: "submitted",
-        startTime: new Date(),
-        endTime: new Date(endTime || new Date()),
-        submittedAt: new Date(),
-        solutions: solutions,
-        totalProblems: totalProblems,
+        startTime: realStartTime ? new Date(realStartTime) : now,
+        endTime: realEndTime,
+        submittedAt: now,
+        solutions,
+        totalProblems,
         passedCount: totalSolved,
-        percentage: percentage,
-        passed: passed,
-        timeTaken: timeTaken,
+        percentage,
+        passed,
+        timeTaken,
+        autoSubmitted: !!isAuto,
       };
 
       if (!userAttempt) {
         userAttempt = new CodingTestAttempt({
-          userId: userId,
+          userId,
           tests: [newTest],
           totalTestsTaken: 1,
           totalProblemsSolved: totalSolved,
@@ -1515,11 +1510,11 @@ router.post("/submit-test", protect, async (req, res) => {
         userAttempt.tests.push(newTest);
         userAttempt.totalTestsTaken = userAttempt.tests.length;
         userAttempt.totalProblemsSolved = userAttempt.tests.reduce(
-          (sum, t) => sum + t.passedCount,
+          (sum, t) => sum + (t.passedCount || 0),
           0,
         );
         const totalAttempted = userAttempt.tests.reduce(
-          (sum, t) => sum + t.totalProblems,
+          (sum, t) => sum + (t.totalProblems || 0),
           0,
         );
         userAttempt.averageScore =
@@ -1529,22 +1524,22 @@ router.post("/submit-test", protect, async (req, res) => {
       }
 
       await userAttempt.save();
-      // console.log(`✅ CodingTestAttempt created successfully!`);
     }
 
-    // ============================================
-    // ✅ STEP 10: Return success response
-    // ============================================
     res.json({
       success: true,
       message: "Test submitted successfully",
       test: {
         status: "submitted",
-        percentage: percentage,
-        passed: passed,
+        percentage,
+        passed,
         passedCount: totalSolved,
-        totalProblems: totalProblems,
-        submittedAt: new Date(),
+        totalProblems,
+        startTime: realStartTime,
+        endTime: realEndTime,
+        timeTaken,
+        submittedAt: now,
+        isAuto: !!isAuto,
       },
     });
   } catch (error) {
@@ -1555,4 +1550,5 @@ router.post("/submit-test", protect, async (req, res) => {
     });
   }
 });
+
 export default router;

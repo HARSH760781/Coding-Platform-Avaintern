@@ -1,33 +1,3 @@
-// import mongoose from "mongoose";
-
-// const userResultsSchema = new mongoose.Schema({
-//   user: {
-//     type: mongoose.Schema.Types.ObjectId,
-//     ref: "User",
-//     required: true,
-//     unique: true,
-//   },
-//   tests: [
-//     {
-//       test: {
-//         type: mongoose.Schema.Types.ObjectId,
-//         ref: "Test",
-//         required: true,
-//       },
-//       answers: { type: Object },
-//       score: { type: Number, required: true },
-//       total: { type: Number, required: true },
-//       submittedAt: { type: Date, default: Date.now },
-//       metadata: {
-//         type: mongoose.Schema.Types.Mixed,
-//         default: () => ({}), // Empty object by default
-//       },
-//     },
-//   ],
-// });
-
-// export default mongoose.model("UserResults", userResultsSchema);
-
 // backend/models/TestResult.js
 import mongoose from "mongoose";
 
@@ -36,7 +6,7 @@ const testResultSchema = new mongoose.Schema({
     type: String,
     required: true,
     unique: true,
-    index: true,
+    // index: true,
   },
   testTitle: {
     type: String,
@@ -45,6 +15,20 @@ const testResultSchema = new mongoose.Schema({
   subject: String,
   topic: String,
   college: String,
+
+  // ✅ Multi-tenant fields (mirror CodingTest)
+  collegeId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: "College",
+    default: null,
+    index: true,
+  },
+  departmentId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: "Department",
+    default: null,
+  },
+
   totalQuestions: {
     type: Number,
     default: 0,
@@ -53,6 +37,7 @@ const testResultSchema = new mongoose.Schema({
     type: Number,
     default: 40,
   },
+
   students: [
     {
       userId: {
@@ -62,6 +47,7 @@ const testResultSchema = new mongoose.Schema({
       },
       userEmail: String,
       userName: String,
+
       solutions: [
         {
           problemId: {
@@ -78,6 +64,7 @@ const testResultSchema = new mongoose.Schema({
           submittedAt: Date,
         },
       ],
+
       totalSolved: {
         type: Number,
         default: 0,
@@ -94,22 +81,23 @@ const testResultSchema = new mongoose.Schema({
         type: Boolean,
         default: false,
       },
+
+      // ✅ Status enum — keep all four variants
       status: {
         type: String,
-        enum: [
-          "in_progress",
-          "not_started",
-          "completed",
-          "timed_out",
-          "submitted",
-        ],
+        enum: ["in_progress", "completed", "timed_out", "submitted"],
         default: "in_progress",
       },
+
+      // ✅ Lifecycle timestamps
       startTime: Date,
       endTime: Date,
-      timeTaken: Number,
+      submittedAt: Date, // NEW — was missing, silently dropped
+      timeTaken: Number, // minutes
+      autoSubmitted: { type: Boolean, default: false }, // NEW — tracks auto vs manual
     },
   ],
+
   stats: {
     totalStudents: { type: Number, default: 0 },
     passedStudents: { type: Number, default: 0 },
@@ -117,6 +105,7 @@ const testResultSchema = new mongoose.Schema({
     averageScore: { type: Number, default: 0 },
     passRate: { type: Number, default: 0 },
   },
+
   generatedAt: {
     type: Date,
     default: Date.now,
@@ -127,7 +116,11 @@ const testResultSchema = new mongoose.Schema({
   },
 });
 
-testResultSchema.index({ testId: 1 });
+// =============================
+// Indexes
+// =============================
 testResultSchema.index({ "students.userId": 1 });
+testResultSchema.index({ collegeId: 1, testId: 1 });
+testResultSchema.index({ "students.status": 1 });
 
 export default mongoose.model("TestResult", testResultSchema);

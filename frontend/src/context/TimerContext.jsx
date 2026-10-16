@@ -1,3 +1,4 @@
+// frontend/src/context/TimerContext.jsx
 import React, {
   createContext,
   useContext,
@@ -42,14 +43,14 @@ export const TimerProvider = ({ children }) => {
     }
   }, []);
 
-  // ✅ Calculate remaining time
+  // ✅ Calculate remaining time (unchanged)
   const calculateRemaining = useCallback((startTimeMs, durationMs) => {
     if (!startTimeMs || !durationMs) return 0;
     const endTimeMs = startTimeMs + durationMs;
     return Math.max(0, endTimeMs - Date.now());
   }, []);
 
-  // ✅ Fetch student data from backend
+  // ✅ Fetch student data from backend (unchanged)
   const fetchStudentData = useCallback(
     async (testIdToFetch) => {
       if (!testIdToFetch) return null;
@@ -87,19 +88,33 @@ export const TimerProvider = ({ children }) => {
     [serverURL],
   );
 
-  // ✅ Start the timer (ONLY from Header)
+  // ============================================
+  // ✅ START TIMER — now supports effective deadline
+  // ============================================
+  //
+  //  NEW signature: startTimer(testId, durationMs, onTimeUp, options)
+  //
+  //  options = {
+  //    testEndTimeMs: number | null   // Date.now()-style timestamp of when the TEST ends
+  //  }
+  //
+  //  Effective countdown = min(studentStart + duration, testEndTime)
+  //
   const startTimer = useCallback(
-    async (testIdToStart, durationMs, onTimeUp) => {
+    async (testIdToStart, durationMs, onTimeUp, options = {}) => {
+      const { testEndTimeMs = null } = options;
+
       // If timer is already running for this test, don't restart
       if (timerRef.current && testId === testIdToStart) {
-        // console.log("⏰ Timer already running for this test");
+        console.log(
+          "🎬 [TimerContext] Returning early — timer already running",
+        );
         return;
       }
 
       // Clear any existing timer
       clearTimer();
       setTestId(testIdToStart);
-      setTestDuration(durationMs);
 
       let startTimeMs = null;
 
@@ -109,9 +124,6 @@ export const TimerProvider = ({ children }) => {
       );
       if (localStartTime) {
         startTimeMs = parseInt(localStartTime);
-        // console.log(
-        //   `⏰ Using cached start time: ${new Date(startTimeMs).toLocaleTimeString()}`,
-        // );
       }
 
       // ✅ STEP 2: Fetch from backend
@@ -123,15 +135,11 @@ export const TimerProvider = ({ children }) => {
             `test_start_time_${testIdToStart}`,
             startTimeMs.toString(),
           );
-          //   console.log(
-          //     `⏰ Fetched start time from backend: ${new Date(startTimeMs).toLocaleTimeString()}`,
-          //   );
         }
       }
 
       // ✅ STEP 3: Create new start time
       if (!startTimeMs) {
-        // console.log("⏰ No start time found, creating new test...");
         startTimeMs = Date.now();
         localStorage.setItem(
           `test_start_time_${testIdToStart}`,
@@ -151,7 +159,6 @@ export const TimerProvider = ({ children }) => {
               startTime: new Date(startTimeMs).toISOString(),
             }),
           });
-          //   console.log("✅ Start time saved to backend");
         } catch (error) {
           console.error("❌ Failed to save start time to backend:", error);
         }
@@ -159,15 +166,19 @@ export const TimerProvider = ({ children }) => {
 
       setStartTime(startTimeMs);
 
-      // ✅ Calculate remaining time
-      const endTimeMs = startTimeMs + durationMs;
-      const remaining = calculateRemaining(startTimeMs, durationMs);
+      // ============================================
+      // ✅ EFFECTIVE DEADLINE
+      // ============================================
+      const studentDeadlineMs = startTimeMs + durationMs;
+      const testEndMs = testEndTimeMs || Infinity;
+      const effectiveEndMs = Math.min(studentDeadlineMs, testEndMs);
+      const effectiveDurationMs = effectiveEndMs - startTimeMs;
 
-      //   console.log(
-      //     `⏰ Started at: ${new Date(startTimeMs).toLocaleTimeString()}`,
-      //   );
-      //   console.log(`⏰ Ends at: ${new Date(endTimeMs).toLocaleTimeString()}`);
-      //   console.log(`⏰ Remaining: ${Math.floor(remaining / 60000)} minutes`);
+      // Store the EFFECTIVE duration so getRemainingTime() stays correct
+      setTestDuration(effectiveDurationMs);
+      setEndTime(effectiveEndMs);
+
+      const remaining = Math.max(0, effectiveEndMs - Date.now());
 
       if (remaining <= 0) {
         setIsTestEnded(true);
@@ -179,18 +190,16 @@ export const TimerProvider = ({ children }) => {
       }
 
       setTimeRemaining(remaining);
-      setEndTime(endTimeMs);
       setIsTimerRunning(true);
 
-      // Store endTime
       localStorage.setItem(
         `test_end_time_${testIdToStart}`,
-        endTimeMs.toString(),
+        effectiveEndMs.toString(),
       );
 
       // ✅ Start the timer (SINGLE instance)
       timerRef.current = setInterval(() => {
-        const newRemaining = calculateRemaining(startTimeMs, durationMs);
+        const newRemaining = Math.max(0, effectiveEndMs - Date.now());
 
         if (newRemaining <= 0) {
           clearTimer();
@@ -207,10 +216,10 @@ export const TimerProvider = ({ children }) => {
         setTimeRemaining(newRemaining);
       }, 1000);
     },
-    [testId, clearTimer, fetchStudentData, calculateRemaining],
+    [testId, clearTimer, fetchStudentData],
   );
 
-  // ✅ Submit test
+  // ✅ Submit test (unchanged)
   const submitTest = useCallback(
     async (testIdToSubmit, isAuto = false) => {
       if (isSubmittingRef.current) return;
@@ -257,7 +266,7 @@ export const TimerProvider = ({ children }) => {
     [serverURL, clearTimer],
   );
 
-  // ✅ Reset timer
+  // ✅ Reset timer (unchanged)
   const resetTimer = useCallback(() => {
     clearTimer();
     setTimeRemaining(0);
@@ -271,7 +280,7 @@ export const TimerProvider = ({ children }) => {
     }
   }, [testId, clearTimer]);
 
-  // ✅ Handle visibility change
+  // ✅ Handle visibility change (uses testDuration which is now the effective one)
   useEffect(() => {
     const handleVisibilityChange = async () => {
       if (
@@ -279,7 +288,6 @@ export const TimerProvider = ({ children }) => {
         testId &&
         timerRef.current
       ) {
-        // console.log("👁️ Tab visible - recalculating time...");
         if (startTime && testDuration) {
           const remaining = calculateRemaining(startTime, testDuration);
           if (remaining <= 0 && !isEndedRef.current) {

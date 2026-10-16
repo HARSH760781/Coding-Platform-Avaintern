@@ -2,6 +2,17 @@
 import mongoose from "mongoose";
 
 const codingTestAttemptSchema = new mongoose.Schema({
+  collegeId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: "College",
+    default: null,
+    index: true,
+  },
+  departmentId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: "Department",
+    default: null,
+  },
   userId: {
     type: mongoose.Schema.Types.ObjectId,
     ref: "User",
@@ -26,8 +37,8 @@ const codingTestAttemptSchema = new mongoose.Schema({
           "in_progress",
           "completed",
           "timed_out",
-          "submitted",
           "accepted",
+          "submitted",
           "Accepted",
           "Accepted ✅",
           "wrong_answer",

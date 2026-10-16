@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useRef } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { useTimer } from "../context/TimerContext"; // ✅ Import useTimer
+import { useTimer } from "../context/TimerContext";
 import Logo from "../assets/logo.png";
 import {
   Brain,
@@ -53,34 +53,33 @@ const clearOldTestData = (newTestId) => {
   });
 };
 
+// ✅ Utility: resolve the testId string used for API calls (?testId=)
+const getActiveTestId = () =>
+  localStorage.getItem("testStringId") ||
+  localStorage.getItem("currentTestId") ||
+  localStorage.getItem("testId");
+
 const Header = () => {
   const [problems, setProblems] = useState([]);
   const [solvedProblems, setSolvedProblems] = useState([]);
   const [stats, setStats] = useState({ total: 0, easy: 0, medium: 0, hard: 0 });
 
-  // ✅ Use the hook instead of localStorage
   const { isAdmin, loading: roleLoading } = useRole();
   const [authChecked, setAuthChecked] = useState(false);
 
-  // ✅ USE THE TIMER CONTEXT - Remove local timer states
   const {
-    timeRemaining, // ✅ From context
-    isTestEnded, // ✅ From context
-    isTimerRunning, // ✅ From context
-    startTimer, // ✅ From context
-    resetTimer, // ✅ From context
-    clearTimer, // ✅ From context
-    submitTest, // ✅ From context
-    setIsTestEnded, // ✅ From context
-    isEndedRef, // ✅ From context
-    isSubmittingRef, // ✅ From context
-    testId: contextTestId, // ✅ From context
+    timeRemaining,
+    isTestEnded,
+    isTimerRunning,
+    startTimer,
+    resetTimer,
+    clearTimer,
+    submitTest,
+    setIsTestEnded,
+    isEndedRef,
+    isSubmittingRef,
+    testId: contextTestId,
   } = useTimer();
-
-  // ❌ REMOVE these local states - they're now in context
-  // const [timeRemaining, setTimeRemaining] = useState(0);
-  // const [testTimer, setTestTimer] = useState(null);
-  // const [isTestEnded, setIsTestEnded] = useState(false);
 
   const [isTestMode, setIsTestMode] = useState(false);
   const [testId, setTestId] = useState(null);
@@ -95,83 +94,153 @@ const Header = () => {
   const navigate = useNavigate();
   const serverURL = import.meta.env.VITE_API_URL || "";
 
-  // ✅ Main app URL
   const MAIN_APP_URL = "https://avainternlms.in";
 
-  // ✅ Use ref to store testId for event listener
   const testIdRef = useRef(null);
+  const didInitRef = useRef(false);
 
+  // ============================================
+  // ✅ MAIN MOUNT EFFECT — waits for auth before init
+  // ============================================
   useEffect(() => {
-    const init = async () => {
-      await fetchProblems();
-      checkSolvedProblems();
+    const initOnce = async () => {
+      if (didInitRef.current) return;
+      didInitRef.current = true;
 
-      const urlParams = new URLSearchParams(window.location.search);
-      const urlTestId = urlParams.get("testId");
-      const storedTestId = localStorage.getItem("currentTestId");
-      const finalTestId = urlTestId || storedTestId;
+      try {
+        await fetchProblems();
+        checkSolvedProblems();
 
-      if (finalTestId) {
-        setTestId(finalTestId);
-        testIdRef.current = finalTestId;
-        setIsTestMode(true);
-        setIsTestModeLoading(true);
-        localStorage.setItem("currentTestId", finalTestId);
+        const urlParams = new URLSearchParams(window.location.search);
+        const urlTestId = urlParams.get("testId");
+        const storedTestId = getActiveTestId();
+        const finalTestId = urlTestId || storedTestId;
 
-        // ✅ Clear old test data for this user
-        clearOldTestData(finalTestId);
+        if (finalTestId) {
+          setTestId(finalTestId);
+          testIdRef.current = finalTestId;
+          setIsTestMode(true);
+          setIsTestModeLoading(true);
+          localStorage.setItem("currentTestId", finalTestId);
 
-        // ✅ Wait for both to complete
-        await Promise.all([
-          checkTestAttempt(finalTestId),
-          startTestWithTimer(finalTestId), // ✅ Use the new function
-        ]);
+          clearOldTestData(finalTestId);
 
-        setIsTestModeLoading(false);
-      } else {
+          await Promise.all([
+            checkTestAttempt(finalTestId),
+            startTestWithTimer(finalTestId),
+          ]);
+
+          setIsTestModeLoading(false);
+        } else {
+          setIsTestModeLoading(false);
+        }
+      } catch (err) {
+        console.error("❌ Header init error:", err);
         setIsTestModeLoading(false);
       }
     };
 
-    init();
+    // ✅ Handler for USER_AUTH_DATA from the LMS parent window
+    const handleAuthMessage = (event) => {
+      if (event.data?.type !== "USER_AUTH_DATA") return;
 
-    // ✅ Add refresh event listener using ref
+      const {
+        token,
+        role,
+        userId,
+        email,
+        testId: incomingTestId,
+        testStringId,
+        testTitle,
+        college,
+      } = event.data.data || {};
+
+      if (token) localStorage.setItem("token", token);
+      if (role) localStorage.setItem("role", role);
+      if (userId) localStorage.setItem("userId", userId);
+      if (email) localStorage.setItem("email", email);
+      if (college) localStorage.setItem("college", college);
+
+      if (incomingTestId) {
+        localStorage.setItem("testId", incomingTestId);
+      }
+      if (testStringId) {
+        localStorage.setItem("testStringId", testStringId);
+        localStorage.setItem("currentTestId", testStringId);
+      } else if (incomingTestId) {
+        localStorage.setItem("currentTestId", incomingTestId);
+      }
+      if (testTitle) {
+        localStorage.setItem("testTitle", testTitle);
+        localStorage.setItem("currentTestTitle", testTitle);
+      }
+
+      initOnce();
+    };
+
+    window.addEventListener("message", handleAuthMessage);
+
+    // ✅ Fallback: init immediately if token + testId are already present.
+    if (
+      localStorage.getItem("token") &&
+      (localStorage.getItem("testStringId") ||
+        localStorage.getItem("currentTestId") ||
+        localStorage.getItem("testId"))
+    ) {
+      initOnce();
+    }
+
+    // ✅ Timeout fallback: if no auth data arrives in 10 seconds, init anyway
+    const timeoutId = setTimeout(() => {
+      if (!didInitRef.current) {
+        console.warn(
+          "⚠️ [Header] No USER_AUTH_DATA received, init fallback fired",
+        );
+        initOnce();
+      }
+    }, 10000);
+
     const handleTestRefresh = () => {
-      const currentTestId = testIdRef.current;
+      const currentTestId = testIdRef.current || getActiveTestId();
       if (currentTestId) {
         checkTestAttempt(currentTestId);
+        fetchProblems();
       }
     };
-
     window.addEventListener("refreshTestAttempt", handleTestRefresh);
 
-    const handleScroll = () => {
-      setIsScrolled(window.scrollY > 10);
-    };
+    const handleScroll = () => setIsScrolled(window.scrollY > 10);
     window.addEventListener("scroll", handleScroll);
 
     return () => {
+      window.removeEventListener("message", handleAuthMessage);
       window.removeEventListener("scroll", handleScroll);
       window.removeEventListener("refreshTestAttempt", handleTestRefresh);
+      clearTimeout(timeoutId);
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // ✅ Set authChecked when role loading completes
   useEffect(() => {
-    if (!roleLoading) {
-      setAuthChecked(true);
-    }
+    if (!roleLoading) setAuthChecked(true);
   }, [roleLoading]);
 
-  // ✅ Update ref whenever testId changes
   useEffect(() => {
     testIdRef.current = testId;
   }, [testId]);
 
+  // ============================================
+  // API CALLS
+  // ============================================
   const fetchProblems = async () => {
     try {
+      if (!localStorage.getItem("token")) {
+        console.warn("⚠️ [Header] fetchProblems skipped — no token yet");
+        return;
+      }
+
       const response = await getProblems();
-      const problemsData = response.data.problems || [];
+      const problemsData = response?.data?.problems || [];
       setProblems(problemsData);
 
       const easy = problemsData.filter((p) => p.difficulty === "Easy").length;
@@ -181,13 +250,13 @@ const Header = () => {
       const hard = problemsData.filter((p) => p.difficulty === "Hard").length;
       setStats({ total: problemsData.length, easy, medium, hard });
     } catch (error) {
-      console.error("Error fetching problems:", error);
+      console.error("❌ [Header] fetchProblems error:", error);
     }
   };
 
   const checkSolvedProblems = () => {
     const userId = getUserId();
-    const currentTestId = localStorage.getItem("currentTestId");
+    const currentTestId = getActiveTestId();
 
     if (currentTestId) {
       const key = `user_${userId}_solvedProblems_${currentTestId}`;
@@ -199,7 +268,10 @@ const Header = () => {
     }
   };
 
-  // ✅ NEW: Start test with timer using Context
+  // ============================================
+  // ✅ Start test with timer using Context
+  //    Now passes testEndTimeMs so the timer can cap at test end.
+  // ============================================
   const startTestWithTimer = async (testIdToStart) => {
     if (!testIdToStart) return;
 
@@ -207,19 +279,26 @@ const Header = () => {
       const token = localStorage.getItem("token");
       const response = await fetch(
         `${serverURL}/coding/test-status/${testIdToStart}`,
-        {
-          headers: { Authorization: `Bearer ${token}` },
-        },
+        { headers: { Authorization: `Bearer ${token}` } },
       );
 
       const data = await response.json();
 
       if (data.success && data.status === "active") {
-        const durationMs = data.duration || 60 * 60 * 1000;
+        const durationMs = data.duration || 60 * 60 * 1000; // fallback 60 min
+        const testEndTimeMs = data.endTime
+          ? new Date(data.endTime).getTime()
+          : null;
 
-        // ✅ Start timer in context (this will only run once)
-        await startTimer(testIdToStart, durationMs, () =>
-          handleSubmitTest(true),
+        // ✅ Pass testEndTimeMs in options so TimerContext
+        //    can compute min(startTime + duration, testEndTime)
+        await startTimer(
+          testIdToStart,
+          durationMs,
+          () => handleSubmitTest(true),
+          {
+            testEndTimeMs,
+          },
         );
       } else if (data.status === "ended") {
         toast.error("⏰ Test has already ended!");
@@ -228,27 +307,25 @@ const Header = () => {
         await handleSubmitTest(true);
       }
     } catch (error) {
-      console.error("❌ Error starting test:", error);
+      console.error("❌ [Header] Error starting test:", error);
       const defaultDuration = 60 * 60 * 1000;
+      // Fallback: no testEndTimeMs, so timer behaves like before
       await startTimer(testIdToStart, defaultDuration, () =>
         handleSubmitTest(true),
       );
     }
   };
 
-  // ✅ Redirect to Main App and Close Current Tab
   const redirectToMainAppAndClose = () => {
     try {
-      const currentTestId =
-        testId || testIdRef.current || localStorage.getItem("currentTestId");
+      const currentTestId = testId || testIdRef.current || getActiveTestId();
 
-      // ✅ Clear timer using context
       clearTimer();
       resetTimer();
 
-      // ✅ Clear localStorage
       localStorage.removeItem("currentTestId");
       localStorage.removeItem("testId");
+      localStorage.removeItem("testStringId");
       localStorage.removeItem("testTitle");
       localStorage.removeItem("currentTestTitle");
 
@@ -257,7 +334,6 @@ const Header = () => {
         localStorage.removeItem(`test_end_time_${currentTestId}`);
       }
 
-      // ✅ Send message to parent window
       if (window.opener) {
         window.opener.postMessage(
           {
@@ -275,9 +351,7 @@ const Header = () => {
       window.close();
 
       setTimeout(() => {
-        if (!window.closed) {
-          window.location.href = "about:blank";
-        }
+        if (!window.closed) window.location.href = "about:blank";
       }, 300);
     } catch (error) {
       console.error("❌ Error closing tab:", error);
@@ -285,16 +359,18 @@ const Header = () => {
     }
   };
 
-  // ✅ Check test attempt
   const checkTestAttempt = async (testIdToCheck, showToast = true) => {
     try {
+      if (!localStorage.getItem("token")) {
+        console.warn("⚠️ [Header] checkTestAttempt skipped — no token yet");
+        return;
+      }
+
       const token = localStorage.getItem("token");
       const url = `${serverURL}/coding/attempt-status/${testIdToCheck}`;
 
       const response = await fetch(url, {
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
+        headers: { Authorization: `Bearer ${token}` },
       });
 
       const data = await response.json();
@@ -332,11 +408,11 @@ const Header = () => {
 
         const attemptData = {
           status: data.status || data.attemptStatus || "in_progress",
-          solutions: solutions,
-          passedCount: passedCount,
-          totalProblems: totalProblems,
-          percentage: percentage,
-          passed: passed,
+          solutions,
+          passedCount,
+          totalProblems,
+          percentage,
+          passed,
           hasAttempted: data.hasAttempted || false,
           startTime: data.startTime,
         };
@@ -350,9 +426,7 @@ const Header = () => {
         ) {
           toast.error("You have already submitted this test!");
           setIsRedirecting(true);
-          setTimeout(() => {
-            redirectToMainAppAndClose();
-          }, 1500);
+          setTimeout(() => redirectToMainAppAndClose(), 1500);
         }
 
         return attemptData;
@@ -376,12 +450,10 @@ const Header = () => {
     return `${pad(minutes)}:${pad(seconds)}`;
   };
 
-  // ✅ Handle test submission
   const handleSubmitTest = async (isAuto = false) => {
     if (isSubmittingRef.current) return;
 
-    const currentTestId =
-      testId || testIdRef.current || localStorage.getItem("currentTestId");
+    const currentTestId = testId || testIdRef.current || getActiveTestId();
     if (!currentTestId) {
       console.error("❌ Header - No testId available!");
       toast.error("No test ID found. Please refresh the page.");
@@ -411,10 +483,8 @@ const Header = () => {
     setShowSubmitModal(true);
   };
 
-  // ✅ Confirm submission
   const confirmSubmit = async (isAuto = false) => {
-    const currentTestId =
-      testId || testIdRef.current || localStorage.getItem("currentTestId");
+    const currentTestId = testId || testIdRef.current || getActiveTestId();
 
     if (!currentTestId) {
       console.error("❌ Header - No testId available!");
@@ -439,16 +509,17 @@ const Header = () => {
     }
   };
 
-  // Calculate completion percentage
   const completionPercentage =
     stats.total > 0
       ? Math.round((solvedProblems.length / stats.total) * 100)
       : 0;
 
-  // ✅ Check if should show test mode
   const shouldShowTestMode =
     isTestMode || localStorage.getItem("currentTestId");
 
+  // ============================================
+  // RENDER
+  // ============================================
   return (
     <header
       className={`bg-white border-b border-gray-200 shadow-sm sticky top-0 z-50 transition-all duration-300 ${
@@ -457,7 +528,6 @@ const Header = () => {
     >
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex items-center justify-between h-16 sm:h-20">
-          {/* Left - Logo & Brand - Keep as is */}
           <div className="flex items-center gap-3 flex-shrink-0">
             <div
               className="flex-shrink-0 cursor-pointer hover:scale-105 transition-transform duration-200"
@@ -524,7 +594,6 @@ const Header = () => {
             </div>
           </div>
 
-          {/* Center - Timer - Uses timeRemaining from context */}
           {shouldShowTestMode && testAttempt?.status === "in_progress" && (
             <div className="hidden md:flex items-center gap-3 px-4 py-2 bg-gradient-to-r from-red-50 to-orange-50 rounded-xl border-2 border-red-300 shadow-lg shadow-red-100/50">
               <div className="relative">
@@ -542,7 +611,6 @@ const Header = () => {
             </div>
           )}
 
-          {/* Mobile Timer */}
           {shouldShowTestMode && testAttempt?.status === "in_progress" && (
             <div className="md:hidden flex items-center gap-2 px-3 py-1.5 bg-red-50 rounded-lg border border-red-200">
               <Timer className="w-4 h-4 text-red-600 animate-pulse" />
@@ -552,7 +620,6 @@ const Header = () => {
             </div>
           )}
 
-          {/* Right - Actions - Keep as is */}
           <div className="flex items-center gap-2 flex-shrink-0">
             <div className="hidden lg:flex items-center gap-2 px-3 py-1.5 bg-gray-50 rounded-xl border border-gray-200">
               <div className="flex items-center gap-1">
@@ -577,7 +644,6 @@ const Header = () => {
               </div>
             </div>
 
-            {/* ✅ SUBMIT TEST BUTTON */}
             {shouldShowTestMode && testAttempt?.status === "in_progress" && (
               <button
                 onClick={() => handleSubmitTest(false)}
@@ -610,8 +676,7 @@ const Header = () => {
                 </div>
               )}
 
-            {/* Admin Button */}
-            {!roleLoading && isAdmin && authChecked && (
+            {/* {!roleLoading && isAdmin && authChecked && (
               <Link
                 to="/admin"
                 className="flex items-center gap-1.5 px-3 py-2 bg-indigo-50 text-indigo-700 hover:bg-indigo-100 rounded-lg border border-indigo-200 transition-all duration-300 text-sm font-medium hover:scale-105 active:scale-95"
@@ -619,7 +684,7 @@ const Header = () => {
                 <Shield className="w-4 h-4" />
                 <span className="hidden sm:inline">Admin</span>
               </Link>
-            )}
+            )} */}
 
             <button
               onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
@@ -634,7 +699,6 @@ const Header = () => {
           </div>
         </div>
 
-        {/* Mobile Menu - Keep as is */}
         {isMobileMenuOpen && (
           <div className="lg:hidden py-4 border-t border-gray-200 animate-slideDown">
             <div className="space-y-3">
@@ -672,7 +736,7 @@ const Header = () => {
                 />
               </div>
 
-              {!roleLoading && isAdmin && authChecked && (
+              {/* {!roleLoading && isAdmin && authChecked && (
                 <Link
                   to="/admin"
                   className="flex items-center gap-2 px-4 py-2 bg-indigo-50 text-indigo-700 rounded-lg border border-indigo-200 w-full justify-center"
@@ -681,13 +745,12 @@ const Header = () => {
                   <Shield className="w-4 h-4" />
                   <span className="font-medium">Admin Panel</span>
                 </Link>
-              )}
+              )} */}
             </div>
           </div>
         )}
       </div>
 
-      {/* Submit Confirmation Modal - Keep as is */}
       {showSubmitModal && (
         <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl animate-scaleIn">
@@ -714,7 +777,7 @@ const Header = () => {
               <p className="text-sm text-amber-700 flex items-start gap-2">
                 <span className="text-lg">⚠️</span>
                 <span>
-                  Are you sure you want to submit this test? Once you submitted,
+                  Are you sure you want to submit this test? Once you submit,
                   you cannot make any more changes to your test. This tab will
                   close automatically.
                 </span>
@@ -740,7 +803,7 @@ const Header = () => {
                 {submitting ? (
                   <>
                     <Loader2 className="w-4 h-4 animate-spin" />
-                    Submitting....
+                    Submitting...
                   </>
                 ) : (
                   <>

@@ -14,81 +14,121 @@ exports.submitCode = async (req, res) => {
       return res.status(404).json({ error: "Problem not found" });
     }
 
-    // Use ALL test cases including hidden for final evaluation
-    const allTestCases = problem.testCases;
+    const examples = problem.examples || [];
+    const testCases = problem.testCases || [];
 
     const submission = new Submission({
       userId,
       problemId: problem._id,
       language,
       code,
-      totalTestCases: allTestCases.length,
+      totalTestCases: examples.length + testCases.length,
     });
-
     await submission.save();
 
-    // Run code against all test cases
-    const result = await judge0.runBatchTests(code, language, allTestCases);
+    // ---- 1. Run examples ----
+    const exampleRun =
+      examples.length > 0
+        ? await judge0.runBatchTests(
+            code,
+            language,
+            examples.map((ex) => ({
+              input: ex.input,
+              expectedOutput: ex.output,
+            })),
+          )
+        : { success: true, results: [] };
 
-    if (!result.success) {
+    if (!exampleRun.success) {
       submission.status = "Runtime Error";
       await submission.save();
-      return res.status(500).json({ error: result.error });
+      return res.status(500).json({ success: false, error: exampleRun.error });
     }
 
-    // Update submission with results
-    const passedCount = result.summary.passed;
-    const status =
-      passedCount === allTestCases.length ? "Accepted" : "Wrong Answer";
+    // ---- 2. Run hidden test cases ----
+    const hiddenRun =
+      testCases.length > 0
+        ? await judge0.runBatchTests(code, language, testCases)
+        : { success: true, results: [] };
 
+    if (!hiddenRun.success) {
+      submission.status = "Runtime Error";
+      await submission.save();
+      return res.status(500).json({ success: false, error: hiddenRun.error });
+    }
+
+    // ---- 3. Build results ----
+    // Visible results carry full data
+    const exampleResults = exampleRun.results.map((r, idx) => ({
+      input: examples[idx].input,
+      expected: examples[idx].output,
+      output: r.output || "",
+      error: r.error || "",
+      passed: r.passed,
+      isHidden: false,
+    }));
+
+    // Hidden results — pass/fail only, no data
+    const hiddenResults = hiddenRun.results.map((r) => ({
+      passed: r.passed,
+      isHidden: true,
+    }));
+
+    const testResults = [...exampleResults, ...hiddenResults];
+
+    // ---- 4. Score ----
+    const examplePassed = exampleResults.filter((r) => r.passed).length;
+    const hiddenPassed = hiddenResults.filter((r) => r.passed).length;
+    const passedCount = examplePassed + hiddenPassed;
+    const totalCount = testResults.length;
+    const score = totalCount > 0 ? (passedCount / totalCount) * 100 : 0;
+    const status = passedCount === totalCount ? "Accepted" : "Wrong Answer";
+
+    // ---- 5. Persist ----
     submission.status = status;
     submission.passedTestCases = passedCount;
-    submission.score = parseFloat(result.summary.score);
-    submission.testResults = result.results;
+    submission.score = score;
+    submission.testResults = testResults;
     submission.executionTime =
-      result.results.reduce((sum, r) => sum + (r.executionTime || 0), 0) /
-      result.results.length;
-
+      testResults.reduce((s, r) => s + (r.executionTime || 0), 0) /
+      Math.max(testResults.length, 1);
     await submission.save();
 
-    // Update problem stats
     problem.totalSubmissions += 1;
-    if (status === "Accepted") {
-      problem.acceptedSubmissions += 1;
-    }
+    if (status === "Accepted") problem.acceptedSubmissions += 1;
     problem.acceptanceRate =
       (problem.acceptedSubmissions / problem.totalSubmissions) * 100;
     await problem.save();
 
-    // Update user stats if accepted
     if (status === "Accepted") {
       const user = await User.findById(userId);
-      if (!user.solvedProblems.includes(problem._id)) {
+      if (user && !user.solvedProblems.includes(problem._id)) {
         user.solvedProblems.push(problem._id);
         user.stats.totalSolved += 1;
-
         if (problem.difficulty === "Easy") user.stats.easySolved += 1;
-        else if (problem.difficulty === "Medium") user.stats.mediumSolved += 1;
-        else if (problem.difficulty === "Hard") user.stats.hardSolved += 1;
-
+        if (problem.difficulty === "Medium") user.stats.mediumSolved += 1;
+        if (problem.difficulty === "Hard") user.stats.hardSolved += 1;
         await user.save();
       }
     }
 
-    res.json({
+    // ---- 6. Response ----
+    return res.json({
       success: true,
-      submission: {
-        id: submission._id,
-        status,
-        score: result.summary.score,
-        passedTests: passedCount,
-        totalTests: allTestCases.length,
-        testResults: result.results,
-        executionTime: submission.executionTime,
+      status,
+      score,
+      passedTests: passedCount,
+      totalTests: totalCount,
+      isSaved: status === "Accepted",
+      testResults, // examples (full data) + hidden (pass only)
+      hiddenSummary: {
+        passed: hiddenPassed,
+        total: hiddenResults.length,
       },
     });
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    console.error("submitCode error:", error);
+    return res.status(500).json({ error: error.message });
   }
 };
 
@@ -102,5 +142,60 @@ exports.getSubmissions = async (req, res) => {
     res.json({ success: true, submissions });
   } catch (error) {
     res.status(500).json({ error: error.message });
+  }
+};
+
+exports.runSamples = async (req, res) => {
+  const { problemId } = req.params;
+  const { code, language } = req.body;
+
+  try {
+    const problem = await Problem.findOne({ problemId });
+    if (!problem) return res.status(404).json({ error: "Problem not found" });
+
+    const examples = problem.examples || [];
+    if (examples.length === 0) {
+      return res.status(400).json({
+        success: false,
+        error: "No examples available",
+      });
+    }
+
+    const run = await judge0.runBatchTests(
+      code,
+      language,
+      examples.map((ex) => ({
+        input: ex.input,
+        expectedOutput: ex.output,
+      })),
+    );
+
+    if (!run.success) {
+      return res.status(500).json({ success: false, error: run.error });
+    }
+
+    const testResults = run.results.map((r, idx) => ({
+      input: examples[idx].input,
+      expected: examples[idx].output,
+      output: r.output || "",
+      error: r.error || "",
+      passed: r.passed,
+      isHidden: false,
+    }));
+
+    const passedTests = testResults.filter((r) => r.passed).length;
+
+    return res.json({
+      success: true,
+      status: passedTests === testResults.length ? "Accepted" : "Wrong Answer",
+      passedTests,
+      totalTests: testResults.length,
+      score: (passedTests / testResults.length) * 100,
+      testResults,
+      isSaved: false,
+    });
+  } catch (error) {
+    console.error("runSamples error:", error);
+    return res.status(500).json({ success: false, error: error.message });
   }
 };
